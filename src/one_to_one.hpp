@@ -241,9 +241,9 @@ std::vector<std::string> naive_ring_buffer_row_alg<T, THREADS_PER_BLOCK, DEBUG, 
 
 
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
-class fft_original_alg: public one_to_one<T, ALLOC> {
+class fft_original_alg_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    fft_original_alg()
+    fft_original_alg_one_to_one()
         :one_to_one<T, ALLOC>(true, labels.size()), ref_(), target_(), result_(), fft_buffer_size_(0)
     {
 
@@ -384,7 +384,7 @@ private:
 };
 
 template<typename T, bool DEBUG, typename ALLOC>
-std::vector<std::string> fft_original_alg<T, DEBUG, ALLOC>::labels{
+std::vector<std::string> fft_original_alg_one_to_one<T, DEBUG, ALLOC>::labels{
     "Total",
     "Forward FFT",
     "Hadamard",

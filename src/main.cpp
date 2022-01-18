@@ -121,18 +121,21 @@ static std::unordered_map<std::string, std::function<void(
     const po::variable_value& validate,
     bool
 )>> algorithms{
-    {"cpu_one_one", run_measurement<cpu_one_to_one<data_type, false>>},
-    {"cpu_one_many", run_measurement<cpu_one_to_many<data_type, false>>},
+    {"cpu_one_to_one", run_measurement<cpu_one_to_one<data_type, false>>},
+    {"cpu_one_to_many", run_measurement<cpu_one_to_many<data_type, false>>},
     {"cpu_n_to_mn", run_measurement<cpu_n_to_mn<data_type, false>>},
     {"cpu_n_to_m", run_measurement<cpu_n_to_m<data_type, false>>},
-    {"nai_orig_one_one", run_measurement<naive_original_alg_one_to_one<data_type, false, pinned_allocator<data_type>>>},
-    {"nai_orig_one_many", run_measurement<naive_original_alg_one_to_many<data_type, false, pinned_allocator<data_type>>>},
+    {"nai_orig_one_to_one", run_measurement<naive_original_alg_one_to_one<data_type, false, pinned_allocator<data_type>>>},
+    {"nai_orig_one_to_many", run_measurement<naive_original_alg_one_to_many<data_type, false, pinned_allocator<data_type>>>},
     {"nai_orig_n_to_mn", run_measurement<naive_original_alg_n_to_mn<data_type, false, pinned_allocator<data_type>>>},
     {"nai_rows_128", run_measurement<naive_ring_buffer_row_alg<data_type, 128, false, pinned_allocator<data_type>>>},
     {"nai_rows_256", run_measurement<naive_ring_buffer_row_alg<data_type, 256, false, pinned_allocator<data_type>>>},
     {"nai_def_block_128", run_measurement<naive_def_per_block<data_type, 128, false, pinned_allocator<data_type>>>},
     {"nai_def_block_256", run_measurement<naive_def_per_block<data_type, 256, false, pinned_allocator<data_type>>>},
-    {"fft_orig_one_one", run_measurement<fft_original_alg<data_type, false, pinned_allocator<data_type>>>}
+    {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<data_type, false, pinned_allocator<data_type>>>},
+    {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<data_type, false, pinned_allocator<data_type>>>},
+    {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<data_type, false, pinned_allocator<data_type>>>},
+    {"fft_better_n_to_m", run_measurement<fft_better_hadamard_alg_n_to_m<data_type, false, pinned_allocator<data_type>>>}
 };
 
 void print_help(std::ostream& out, const std::string& name, const po::options_description& options) {

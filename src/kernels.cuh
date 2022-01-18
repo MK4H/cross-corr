@@ -6,12 +6,36 @@ namespace cross {
 
 template<typename T>
 void run_hadamard_original(
-    const T* ref,
-    T* deformed,
+    const T* __restrict__ ref,
+    T* __restrict__ deformed,
     dsize2_t subregion_size,
     dsize_t subregions_per_pic,
     dsize_t batch_size,
     dsize_t num_threads
+);
+
+template<typename T>
+void run_hadamard_n_to_m_over_right(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    T* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize_t left_num,
+    dsize_t right_num,
+    dsize_t threads_per_block,
+    dsize_t min_items_per_thread
+);
+
+template<typename T>
+void run_hadamard_n_to_m_over_output(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    T* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize_t left_num,
+    dsize_t right_num,
+    dsize_t threads_per_block,
+    dsize_t min_items_per_thread
 );
 
 template<typename T, typename RES>
