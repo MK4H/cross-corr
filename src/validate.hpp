@@ -3,8 +3,10 @@
 #include <optional>
 #include <algorithm>
 #include <string>
+#include <limits>
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
+#include <boost/accumulators/statistics/max.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
 #include <boost/accumulators/statistics/variance.hpp>
 #include <cmath>
@@ -22,12 +24,24 @@ namespace cross {
 class validation_results {
 public:
     validation_results()
-        :empty_(true), diff_mean_(0), diff_std_dev_(0)
+        :empty_(true), diff_max_(0), diff_mean_(0), diff_std_dev_(0), max_valid_(0), max_actual_(0)
     { }
 
-    validation_results(double diff_mean, double diff_std_dev)
-        :empty_(false), diff_mean_(diff_mean), diff_std_dev_(diff_std_dev)
+    validation_results(double diff_max, double diff_mean, double diff_std_dev, double max_valid, double max_actual)
+        :empty_(false), diff_max_(diff_max), diff_mean_(diff_mean), diff_std_dev_(diff_std_dev), max_valid_(max_valid), max_actual_(max_actual)
     { }
+
+    double get_diff_max() const {
+        return diff_max_;
+    }
+
+    double get_max_valid() const {
+        return max_valid_;
+    }
+
+    double get_max_actual() const {
+        return max_actual_;
+    }
 
     double get_diff_mean() const {
         return diff_mean_;
@@ -42,8 +56,12 @@ public:
     }
 private:
     bool empty_;
+    double diff_max_;
     double diff_mean_;
     double diff_std_dev_;
+
+    double max_valid_;
+    double max_actual_;
 };
 
 
@@ -51,9 +69,14 @@ std::ostream& operator <<(std::ostream& out, const validation_results& res) {
     if (res.empty()) {
         out << "No validation" << "\n";
     } else {
+        // TODO: Set precision
         out << "Difference from valid values:" << "\n";
+        out << "Max: " << res.get_diff_max() << " (" << std::fixed << res.get_max_valid() << " instead of " << res.get_max_actual() << ")\n";
+        out.unsetf(std::ios_base::fixed);
+        out << std::scientific;
         out << "Mean: " << res.get_diff_mean() << "\n";
         out << "Stddev: " << res.get_diff_std_dev() << "\n";
+        out.unsetf(std::ios_base::scientific);
     }
     return out;
 }
@@ -116,6 +139,7 @@ validation_results validate_result(const MAT1& result, const MAT2& valid_result)
     accs::accumulator_set<
         double,
         accs::stats<
+            accs::tag::max,
             accs::tag::mean,
             accs::tag::variance(accs::lazy)
         >
@@ -123,11 +147,28 @@ validation_results validate_result(const MAT1& result, const MAT2& valid_result)
 
     std::for_each(std::begin(differences), std::end(differences), std::bind<void>(std::ref(acc), std::placeholders::_1));
 
-    return validation_results{
-        accs::mean(acc),
-        std::sqrt(accs::variance(acc))
-    };
+    auto max = accs::max(acc);
+    auto mean = accs::mean(acc);
+    auto stddev = std::sqrt(accs::variance(acc));
+    for (dsize_t i = 0; i < differences.size(); ++i) {
+        if (differences[i] == max) {
+            return validation_results{
+                max,
+                mean,
+                stddev,
+                *(std::begin(result) + i),
+                *(std::begin(valid_result) + i)
+            };
+        }
+    }
 
+    return validation_results{
+        max,
+        mean,
+        stddev,
+        std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::quiet_NaN()
+    };
 }
 
 inline dsize2_t result_matrix_size(dsize2_t ref_size, dsize2_t target_size) {
