@@ -60,6 +60,24 @@ void validate(
     std::cout << validate_result(valid, target);
 }
 
+template<typename DURATION>
+void output_measurements(
+    const std::filesystem::path& measurements_path,
+    const std::vector<std::string>& labels,
+    const std::vector<DURATION>& measurements,
+    bool append
+) {
+    std::ofstream measurements_file;
+    if (append) {
+        measurements_file.open(measurements_path, std::ios_base::app);
+    } else {
+        measurements_file.open(measurements_path);
+        to_csv(measurements_file, labels);
+    }
+
+    to_csv<std::chrono::nanoseconds>(measurements_file, measurements);
+}
+
 template<typename ALG>
 void run_measurement(
     const std::filesystem::path& ref_path,
@@ -67,7 +85,8 @@ void run_measurement(
     const std::filesystem::path& out_path,
     const std::filesystem::path& measurements_path,
     const po::variable_value& validate,
-    bool normalize
+    bool normalize,
+    bool append_measurements
 ) {
     ALG alg;
     std::cerr << "Loading inputs\n";
@@ -90,11 +109,12 @@ void run_measurement(
         res.store_to_csv(out_file);
     }
 
-    std::ofstream measurements_file(measurements_path);
-    auto labels = alg.measurement_labels();
-    auto measurements = alg.measurements();
-    to_csv(measurements_file, labels);
-    to_csv<std::chrono::nanoseconds>(measurements_file, measurements);
+    output_measurements(
+        measurements_path,
+        alg.measurement_labels(),
+        alg.measurements(),
+        append_measurements
+    );
 
 
     if (validate.empty()) {
@@ -118,6 +138,7 @@ static std::unordered_map<std::string, std::function<void(
     const std::filesystem::path&,
     const std::filesystem::path&,
     const po::variable_value& validate,
+    bool,
     bool
 )>> algorithms{
     {"cpu_one_to_one", run_measurement<cpu_one_to_one<data_type, false>>},
@@ -188,7 +209,8 @@ int main(int argc, char **argv) {
             ("out,o", po::value<std::filesystem::path>(&out_path)->default_value(out_path))
             ("times,t", po::value<std::filesystem::path>(&measurements_path)->default_value(measurements_path))
             ("validate,v", po::value<std::filesystem::path>()->implicit_value(""))
-            ("normalize,n", "If algorithm is fft, normalize the results")
+            ("normalize,n", po::bool_switch()->default_value(false), "If algorithm is fft, normalize the results")
+            ("append,a", po::bool_switch()->default_value(false), "Append time measurements without the header if the times file already exists instead of overwriting it")
             ;
 
         po::options_description run_pos_opts;
@@ -252,8 +274,10 @@ int main(int argc, char **argv) {
                 return 1;
             }
 
+            auto normalize = vm["normalize"].as<bool>();
+            auto append = vm["append"].as<bool>();
             auto validate = vm["validate"];
-            fnc->second(ref_path, target_path, out_path, measurements_path, validate, vm.count("normalize") != 0);
+            fnc->second(ref_path, target_path, out_path, measurements_path, validate, normalize, append);
             return 0;
         } else if (cmd == "validate") {
             std::vector<std::string> opts = po::collect_unrecognized(parsed.options, po::include_positional);
