@@ -260,7 +260,7 @@ protected:
                 256)
         );
 
-        CUDA_MEASURE(3,
+        CPU_MEASURE(3,
             fft_complex_to_real(fft_inv_plan_, d_inputs_fft_ + fft_buffer_size_ * refs_.num_matrices(), d_results_)
         );
 

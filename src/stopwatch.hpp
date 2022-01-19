@@ -50,11 +50,11 @@ public:
     cuda_measurement(std::size_t label, cudaEvent_t start, cudaEvent_t stop)
         :label_(label), start_(start), stop_(stop)
     {
-        cudaEventRecord(start_);
+        CUCH(cudaEventRecord(start_));
     }
 
     void insert_stop() {
-        cudaEventRecord(stop_);
+        CUCH(cudaEventRecord(stop_));
     }
 
     std::size_t get_label() const {
@@ -66,7 +66,7 @@ public:
     }
 
     cudaEvent_t get_stop() const {
-        return start_;
+        return stop_;
     }
 private:
     std::size_t label_;
@@ -81,13 +81,13 @@ public:
         :measurements_(num_measurements), events_(2*num_measurements)
     {
         for (auto&& event: events_) {
-            cudaEventCreate(&event);
+            CUCH(cudaEventCreateWithFlags(&event, cudaEventBlockingSync));
         }
     }
 
     ~stopwatch() {
         for (auto&& event: events_) {
-            cudaEventDestroy(event);
+            CUCH(cudaEventDestroy(event));
         }
     }
 
@@ -116,9 +116,9 @@ public:
     }
 
     void cuda_measure(std::size_t label, cudaEvent_t start, cudaEvent_t stop) {
-        cudaEventSynchronize(stop);
+        CUCH(cudaEventSynchronize(stop));
         float milliseconds = 0;
-        cudaEventElapsedTime(&milliseconds, start, stop);
+        CUCH(cudaEventElapsedTime(&milliseconds, start, stop));
         measurements_[label] = std::chrono::duration_cast<typename CLOCK::duration>(std::chrono::duration<double, std::milli>(milliseconds));
     }
 

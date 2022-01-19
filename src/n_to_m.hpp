@@ -168,7 +168,7 @@ protected:
                 10)
         );
 
-        CUDA_MEASURE(3,
+        CPU_MEASURE(3,
             fft_complex_to_real(fft_inv_plan_, d_haddamard_results_, d_results_)
         );
 

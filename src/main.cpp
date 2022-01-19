@@ -90,6 +90,12 @@ void run_measurement(
         res.store_to_csv(out_file);
     }
 
+    std::ofstream measurements_file(measurements_path);
+    auto labels = alg.measurement_labels();
+    auto measurements = alg.measurements();
+    to_csv(measurements_file, labels);
+    to_csv<std::chrono::nanoseconds>(measurements_file, measurements);
+
 
     if (validate.empty()) {
         std::cerr << "No validation\n";
@@ -101,13 +107,6 @@ void run_measurement(
         std::cerr << "Computing valid results and validating\n";
         std::cout << alg.validate();
     }
-
-
-    std::ofstream measurements_file(measurements_path);
-    auto labels = alg.measurement_labels();
-    auto measurements = alg.measurements();
-    to_csv(measurements_file, labels);
-    to_csv<std::chrono::nanoseconds>(measurements_file, measurements);
 }
 
 
