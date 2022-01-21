@@ -15,7 +15,6 @@ DEFAULT_OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "data.cs
 
 def save(num_matrices: int, values: np.ndarray, out_format: OutputFormats, output_path: Path):
     if out_format == OutputFormats.CSV:
-        print(f"Saving data to {str(output_path)}")
         with output_path.open(mode='w') as f:
             np.savetxt(
                 f,
@@ -26,17 +25,20 @@ def save(num_matrices: int, values: np.ndarray, out_format: OutputFormats, outpu
 
 def generate_data(rows: int, columns: int):
     rng = np.random.default_rng()
-    print("Generating random matrix")
     return rng.random(size=(rows, columns))
 
 
-def generate_matrices(num_matrices: int, rows: int, cols: int, out_format: OutputFormats, out_path: Path):
+def generate_matrices(num_matrices: int, rows: int, cols: int, out_format: OutputFormats, out_path: Path, progress: bool = False):
+    if progress:
+        print("Generating random matrix")
     values = generate_data(num_matrices * rows, cols)
+    if progress:
+        print(f"Saving data to {str(out_path)}")
     save(num_matrices, values, out_format, out_path.absolute())
 
 
 def _generate_matrix(args: argparse.Namespace):
-    generate_matrices(args.num_matrices, args.rows, args.columns, args.format, args.output_path)
+    generate_matrices(args.num_matrices, args.rows, args.columns, args.format, args.output_path, True)
 
 
 def generator_arguments(parser: argparse.ArgumentParser):
@@ -51,16 +53,16 @@ def generator_arguments(parser: argparse.ArgumentParser):
                                 default=DEFAULT_OUTPUT_FORMAT,
                                 help=f"Output file format (defaults to {DEFAULT_OUTPUT_FORMAT})")
     parser.add_argument("rows",
-                                type=int,
-                                help=f"Number of rows of the generated matrix")
+                        type=int,
+                        help=f"Number of rows of the generated matrix")
     parser.add_argument("columns",
-                                type=int,
-                                help=f"Number of columns of the generated matrix")
+                        type=int,
+                        help=f"Number of columns of the generated matrix")
     parser.add_argument("num_matrices",
-                                nargs="?",
-                                type=int,
-                                default=1,
-                                help=f"Number of matrices of given size to generate (default {1})")
+                        nargs="?",
+                        type=int,
+                        default=1,
+                        help=f"Number of matrices of given size to generate (default {1})")
     parser.set_defaults(action=_generate_matrix)
 
 
@@ -69,8 +71,7 @@ def main():
     input_subparsers = parser.add_subparsers(required=True, dest="input",
                                              description="Generating and transforming input")
 
-    input_generate = input_subparsers.add_parser("generate", help="Generate input matrix")
-    generator_arguments(input_generate)
+    generator_arguments(input_subparsers.add_parser("generate", help="Generate input matrix"))
     args = parser.parse_args()
     args.action(args)
 

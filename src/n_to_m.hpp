@@ -24,6 +24,11 @@ public:
         :cross_corr_alg<T,ALLOC>(is_fft, num_measurements)
     {}
 
+    static bool validate_input_size(dsize_t rows, dsize_t cols, dsize_t left_matrices, dsize_t right_matrices) {
+        return rows > 0 && cols > 0 && left_matrices > 0 && right_matrices > 0;
+    }
+
+protected:
     data_array<T> get_valid_results() const override {
         return cpu_cross_corr_n_to_m(this->refs(), this->targets());
     }

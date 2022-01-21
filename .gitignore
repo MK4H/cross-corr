@@ -2,3 +2,4 @@ data
 build
 .idea
 .vscode
+__pycache__

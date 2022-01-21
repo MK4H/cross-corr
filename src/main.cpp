@@ -8,6 +8,7 @@
 
 #include <boost/program_options.hpp>
 
+#include "simple_logger.hpp"
 #include "validate.hpp"
 #include "matrix.hpp"
 #include "cross_corr.hpp"
@@ -86,26 +87,28 @@ void run_measurement(
     const std::filesystem::path& measurements_path,
     const po::variable_value& validate,
     bool normalize,
-    bool append_measurements
+    bool append_measurements,
+    bool print_progress
 ) {
+    simple_logger logger{print_progress, append_measurements};
     ALG alg;
-    std::cerr << "Loading inputs\n";
+    logger.log("Loading inputs");
     alg.prepare(ref_path, def_path);
 
-    std::cerr << "Running test alg\n";
+    logger.log("Running test alg");
     alg.run();
 
-    std::cerr << "Copying output data to host\n";
+    logger.log("Copying output data to host");
     alg.finalize();
 
     auto res = alg.results();
     std::ofstream out_file(out_path);
     if (alg.is_fft() && normalize) {
-        std::cerr << "Normalizing and storing results\n";
+        logger.log("Normalizing and storing results");
         auto norm = normalize_fft_results(res);
         norm.store_to_csv(out_file);
     } else {
-        std::cerr << "Storing results\n";
+        logger.log("Storing results");
         res.store_to_csv(out_file);
     }
 
@@ -118,16 +121,50 @@ void run_measurement(
 
 
     if (validate.empty()) {
-        std::cerr << "No validation\n";
+        logger.log("No validation");
     } else if (validate.as<std::filesystem::path>() != std::filesystem::path{}) {
         auto precomputed_data_path = validate.as<std::filesystem::path>();
-        std::cerr << "Validating results agains " << precomputed_data_path << "\n";
-        std::cout << alg.validate(precomputed_data_path);
+        logger.log("Validating results agains "s + precomputed_data_path.u8string());
+        logger.result_stats(alg.validate(precomputed_data_path));
     } else {
-        std::cerr << "Computing valid results and validating\n";
-        std::cout << alg.validate();
+        logger.log("Computing valid results and validating");
+        logger.result_stats(alg.validate());
     }
 }
+
+int validate_input_size(
+    const std::string& alg_type,
+    dsize_t rows,
+    dsize_t columns,
+    dsize_t left_matrices,
+    dsize_t right_matrices
+) {
+    static std::unordered_map<std::string, std::function<bool(
+        dsize_t,
+        dsize_t,
+        dsize_t,
+        dsize_t
+    )>> input_size_validation{
+        {"one_to_one", one_to_one<data_type>::validate_input_size},
+        {"one_to_many", one_to_many<data_type>::validate_input_size},
+        {"n_to_mn", n_to_mn<data_type>::validate_input_size},
+        {"n_to_m", n_to_m<data_type>::validate_input_size}
+    };
+
+    auto validator = input_size_validation.find(alg_type);
+    if (validator == input_size_validation.end()) {
+        std::cerr << "Unknown algorithm type \"" << alg_type << "\", expected one of " << get_sorted_keys(input_size_validation) << std::endl;
+        return 1;
+    }
+
+    if (validator->second(rows, columns, left_matrices, right_matrices)) {
+        std::cout << "Valid\n";
+    } else {
+        std::cout << "Invalid\n";
+    }
+    return 0;
+}
+
 
 
 
@@ -138,6 +175,7 @@ static std::unordered_map<std::string, std::function<void(
     const std::filesystem::path&,
     const std::filesystem::path&,
     const po::variable_value& validate,
+    bool,
     bool,
     bool
 )>> algorithms{
@@ -161,8 +199,10 @@ static std::unordered_map<std::string, std::function<void(
 void print_help(std::ostream& out, const std::string& name, const po::options_description& options) {
     out << "Usage: " << name << " [global options] command [run options] <alg> <ref_path> <target_path>\n";
     out << "Commands: \n";
+    out << "\t" << name << " [global options] list\n";
     out << "\t" << name << " [global options] run [run options] <alg> <ref_path> <target_path>\n";
     out << "\t" << name << " [global options] validate [validate options] <alg_type> <validate_data_path> <template_data_path>\n";
+    out << "\t" << name << " [global options] input [input options] <alg_type> <rows> <columns> <left_matrices> <right_matrices>\n";
     out << options;
 }
 
@@ -211,6 +251,7 @@ int main(int argc, char **argv) {
             ("validate,v", po::value<std::filesystem::path>()->implicit_value(""))
             ("normalize,n", po::bool_switch()->default_value(false), "If algorithm is fft, normalize the results")
             ("append,a", po::bool_switch()->default_value(false), "Append time measurements without the header if the times file already exists instead of overwriting it")
+            ("no_progress,p", po::bool_switch()->default_value(false), "Do not print human readable progress, instead any messages to stdout will be formated for machine processing")
             ;
 
         po::options_description run_pos_opts;
@@ -229,10 +270,36 @@ int main(int argc, char **argv) {
         run_positional.add("ref_path", 1);
         run_positional.add("target_path", 1);
 
+        po::options_description input_opts{"Input options"};
+        input_opts.add_options()
+           ;
+
+        po::options_description input_pos_opts;
+        input_pos_opts.add_options()
+            ("alg_type", po::value<std::string>()->required(), "Type of the algorithm to validate thei input dimensions for")
+            ("rows", po::value<dsize_t>()->required(), "Number of rows of each input matrix")
+            ("columns", po::value<dsize_t>()->required(), "Number of columns of each input matrix")
+            ("left_matrices", po::value<dsize_t>()->required(), "Number of left input matrices (for n_to_m, this would be the n)")
+            ("right_matrices", po::value<dsize_t>()->required(), "Number of right input matrices (for n_to_m, this would be the m")
+            ;
+
+        po::options_description all_input_options;
+        all_input_options.add(input_opts);
+        all_input_options.add(input_pos_opts);
+
+        po::positional_options_description input_positional;
+        input_positional.add("alg_type", 1);
+        input_positional.add("rows", 1);
+        input_positional.add("columns", 1);
+        input_positional.add("left_matrices", 1);
+        input_positional.add("right_matrices", 1);
+
+
         po::options_description all_options;
         all_options.add(global_opts);
         all_options.add(all_val_options);
         all_options.add(all_run_options);
+        all_options.add(all_input_options);
 
         po::parsed_options parsed = po::command_line_parser(argc, argv).
                 options(global_opts).
@@ -241,8 +308,6 @@ int main(int argc, char **argv) {
                 run();
         po::variables_map vm;
         po::store(parsed, vm);
-
-
 
         if (vm.count("help")) {
             print_help(std::cout, argv[0], all_options);
@@ -276,9 +341,9 @@ int main(int argc, char **argv) {
 
             auto normalize = vm["normalize"].as<bool>();
             auto append = vm["append"].as<bool>();
+            auto progress = !vm["no_progress"].as<bool>();
             auto validate = vm["validate"];
-            fnc->second(ref_path, target_path, out_path, measurements_path, validate, normalize, append);
-            return 0;
+            fnc->second(ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
         } else if (cmd == "validate") {
             std::vector<std::string> opts = po::collect_unrecognized(parsed.options, po::include_positional);
             opts.erase(opts.begin());
@@ -293,12 +358,40 @@ int main(int argc, char **argv) {
             po::notify(vm);
 
             validate<double>(target_path, ref_path);
-            return 0;
+        } else if (cmd == "list") {
+            auto algs = get_sorted_keys(algorithms);
+            for (auto&& alg: algs) {
+                std::cout << alg << "\n";
+            }
+        } else if (cmd == "input") {
+            std::vector<std::string> opts = po::collect_unrecognized(parsed.options, po::include_positional);
+            opts.erase(opts.begin());
+
+            po::store(
+                po::command_line_parser(opts).
+                    options(all_input_options).
+                    positional(input_positional).
+                    run(),
+                vm
+            );
+            po::notify(vm);
+
+            auto alg_type = vm["alg_type"].as<std::string>();
+            auto rows = vm["rows"].as<dsize_t>();
+            auto columns = vm["columns"].as<dsize_t>();
+            auto left_matrices = vm["left_matrices"].as<dsize_t>();
+            auto right_matrices = vm["right_matrices"].as<dsize_t>();
+            auto ret = validate_input_size(alg_type, rows, columns, left_matrices, right_matrices);
+            if (ret != 0) {
+                print_help(std::cerr, argv[0], all_options);
+            }
+            return ret;
         } else {
             std::cerr << "Unknown command " << cmd << "\n";
             print_help(std::cerr, argv[0], all_options);
             return 1;
         }
+        return 0;
     }
     catch (po::error& e) {
         std::cerr << "Invalid commandline options: " << e.what() << std::endl;

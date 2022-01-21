@@ -24,12 +24,21 @@ public:
         :cross_corr_alg<T,ALLOC>(is_fft, num_measurements)
     {}
 
+    static bool validate_input_size(dsize_t rows, dsize_t cols, dsize_t left_matrices, dsize_t right_matrices) {
+        return rows > 0 && cols > 0 && left_matrices > 0 && right_matrices > 0 && input_sizes_divisible(left_matrices, right_matrices);
+    }
+
+protected:
     data_array<T> get_valid_results() const override {
         return cpu_cross_corr_n_to_mn(this->refs(), this->targets());
     }
 protected:
+    static bool input_sizes_divisible(dsize_t ref_num_matrices, dsize_t target_num_matrices) {
+        return target_num_matrices % ref_num_matrices == 0;
+    }
+
     static void check_input_sizes_divisible(dsize_t ref_num_matrices, dsize_t target_num_matrices) {
-        if (target_num_matrices % ref_num_matrices != 0) {
+        if (!input_sizes_divisible(ref_num_matrices, target_num_matrices)) {
             throw std::runtime_error(
                 "Invalid input data counts, "s +
                 std::to_string(target_num_matrices) +

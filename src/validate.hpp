@@ -65,6 +65,14 @@ private:
 };
 
 
+void to_csv(std::ostream& out, const validation_results& res, bool with_header = false) {
+    if (with_header) {
+        out << "Max,Mean,Stddev" << "\n";
+    }
+    out << std::scientific << res.get_diff_max() << "," << res.get_diff_mean() << "," << res.get_diff_std_dev() << "\n";
+    out.unsetf(std::ios_base::scientific);
+}
+
 std::ostream& operator <<(std::ostream& out, const validation_results& res) {
     if (res.empty()) {
         out << "No validation" << "\n";
