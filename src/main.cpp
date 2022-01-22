@@ -201,7 +201,7 @@ void print_help(std::ostream& out, const std::string& name, const po::options_de
     out << "Commands: \n";
     out << "\t" << name << " [global options] list\n";
     out << "\t" << name << " [global options] run [run options] <alg> <ref_path> <target_path>\n";
-    out << "\t" << name << " [global options] validate [validate options] <alg_type> <validate_data_path> <template_data_path>\n";
+    out << "\t" << name << " [global options] validate [validate options] <validate_data_path> <template_data_path>\n";
     out << "\t" << name << " [global options] input [input options] <alg_type> <rows> <columns> <left_matrices> <right_matrices>\n";
     out << options;
 }

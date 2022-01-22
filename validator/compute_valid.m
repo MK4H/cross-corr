@@ -64,6 +64,11 @@ try
 
         header = [result_matrix_size, in1_num_matrices * in2_num_matrices];
     case 'n_to_mn'
+        % Results should be ordered so that first we have the cross-correlation of the
+        % n matrices from input1 with the corresponding matrix from the first n matrices in
+        % input2, then following should be the results of cross-correlation of the n matrices
+        % from input1 with the matrices [n,2n) from input2 etc. up to cross-correlation of
+        % the n matrices from input1 with matrices [(m-1)*n,m*n) from input2
         assert(mod(in2_num_matrices, in1_num_matrices) == 0)
         g_in1 = gpuArray(in1_data);
         g_in2 = gpuArray(in2_data);

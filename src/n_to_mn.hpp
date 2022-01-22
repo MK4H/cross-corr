@@ -17,6 +17,17 @@ using namespace std::string_literals;
 
 namespace cross {
 
+/**
+ * The results should be ordered so we first have the cross-correlation of
+ * the n left/reference matrices with the corresponding matrix from the first
+ * n right/deformed matrices, then results of the cross-correlation of the n
+ * left/reference matrices with the corresponding matrices with index [n,2*n),
+ * etc. ending with the cross-correlation of the n left/reference matrices with
+ * right matrices [(m-1)*n,m*n).
+ *
+ * When indexing, this means multiply the index of the right matrix by "m" and add left matrix index,
+ * i.e. right_idx * m + left_idx
+ */
 template<typename T, typename ALLOC = std::allocator<T>>
 class n_to_mn: public cross_corr_alg<T, ALLOC> {
 public:
