@@ -63,7 +63,7 @@ protected:
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class cpu_n_to_mn: public n_to_mn<T, ALLOC> {
 public:
-    cpu_n_to_mn()
+    cpu_n_to_mn(const json& args)
         :n_to_mn<T, ALLOC>(false, labels.size()), refs_(), targets_(), results_()
     {
 
@@ -118,7 +118,7 @@ std::vector<std::string> cpu_n_to_mn<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_original_alg_n_to_mn: public n_to_mn<T, ALLOC> {
 public:
-    naive_original_alg_n_to_mn()
+    naive_original_alg_n_to_mn(const json& args)
         :n_to_mn<T, ALLOC>(false, labels.size()), refs_(), targets_(), results_()
     {
 
@@ -201,7 +201,7 @@ std::vector<std::string> naive_original_alg_n_to_mn<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_original_alg_n_to_mn: public n_to_mn<T, ALLOC> {
 public:
-    fft_original_alg_n_to_mn()
+    fft_original_alg_n_to_mn(const json& args)
         :n_to_mn<T, ALLOC>(true, labels.size()), refs_(), targets_(), results_(), fft_buffer_size_(0)
     {
 

@@ -81,6 +81,7 @@ void output_measurements(
 
 template<typename ALG>
 void run_measurement(
+    const std::optional<std::filesystem::path>& args_path,
     const std::filesystem::path& ref_path,
     const std::filesystem::path& def_path,
     const std::filesystem::path& out_path,
@@ -91,7 +92,13 @@ void run_measurement(
     bool print_progress
 ) {
     simple_logger logger{print_progress, append_measurements};
-    ALG alg;
+    json args;
+    if (args_path) {
+        std::ifstream args_file{*args_path};
+        args_file >> args;
+    }
+
+    ALG alg{args};
     logger.log("Loading inputs");
     alg.prepare(ref_path, def_path);
 
@@ -166,10 +173,8 @@ int validate_input_size(
 }
 
 
-
-
-
 static std::unordered_map<std::string, std::function<void(
+    const std::optional<std::filesystem::path>&,
     const std::filesystem::path&,
     const std::filesystem::path&,
     const std::filesystem::path&,
@@ -186,10 +191,8 @@ static std::unordered_map<std::string, std::function<void(
     {"nai_orig_one_to_one", run_measurement<naive_original_alg_one_to_one<data_type, false, pinned_allocator<data_type>>>},
     {"nai_orig_one_to_many", run_measurement<naive_original_alg_one_to_many<data_type, false, pinned_allocator<data_type>>>},
     {"nai_orig_n_to_mn", run_measurement<naive_original_alg_n_to_mn<data_type, false, pinned_allocator<data_type>>>},
-    {"nai_rows_128", run_measurement<naive_ring_buffer_row_alg<data_type, 128, false, pinned_allocator<data_type>>>},
-    {"nai_rows_256", run_measurement<naive_ring_buffer_row_alg<data_type, 256, false, pinned_allocator<data_type>>>},
-    {"nai_def_block_128", run_measurement<naive_def_per_block<data_type, 128, false, pinned_allocator<data_type>>>},
-    {"nai_def_block_256", run_measurement<naive_def_per_block<data_type, 256, false, pinned_allocator<data_type>>>},
+    {"nai_rows", run_measurement<naive_ring_buffer_row_alg<data_type, false, pinned_allocator<data_type>>>},
+    {"nai_def_block", run_measurement<naive_def_per_block<data_type, false, pinned_allocator<data_type>>>},
     {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<data_type, false, pinned_allocator<data_type>>>},
     {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<data_type, false, pinned_allocator<data_type>>>},
     {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<data_type, false, pinned_allocator<data_type>>>},
@@ -208,11 +211,6 @@ void print_help(std::ostream& out, const std::string& name, const po::options_de
 
 int main(int argc, char **argv) {
     try {
-        std::string alg_name;
-        std::filesystem::path ref_path;
-        std::filesystem::path target_path;
-        std::filesystem::path out_path{"output.csv"};
-        std::filesystem::path measurements_path{"measurements.csv"};
 
         // TODO: Add handling of -- to separate options from positional arguments as program options doesn't do this by itself
         po::options_description global_opts{"Global options"};
@@ -232,8 +230,8 @@ int main(int argc, char **argv) {
 
         po::options_description val_pos_opts;
         val_pos_opts.add_options()
-            ("validate_data_path", po::value<std::filesystem::path>(&target_path)->required(), "path to the data to be validated")
-            ("template_data_path", po::value<std::filesystem::path>(&ref_path)->required(), "path to the valid data")
+            ("validate_data_path", po::value<std::filesystem::path>()->required(), "path to the data to be validated")
+            ("template_data_path", po::value<std::filesystem::path>()->required(), "path to the valid data")
             ;
 
         po::positional_options_description val_positional;
@@ -246,19 +244,20 @@ int main(int argc, char **argv) {
 
         po::options_description run_opts{"Run options"};
         run_opts.add_options()
-            ("out,o", po::value<std::filesystem::path>(&out_path)->default_value(out_path))
-            ("times,t", po::value<std::filesystem::path>(&measurements_path)->default_value(measurements_path))
+            ("out,o", po::value<std::filesystem::path>()->default_value("output.csv"))
+            ("times,t", po::value<std::filesystem::path>()->default_value("measurements.csv"))
             ("validate,v", po::value<std::filesystem::path>()->implicit_value(""))
             ("normalize,n", po::bool_switch()->default_value(false), "If algorithm is fft, normalize the results")
             ("append,a", po::bool_switch()->default_value(false), "Append time measurements without the header if the times file already exists instead of overwriting it")
             ("no_progress,p", po::bool_switch()->default_value(false), "Do not print human readable progress, instead any messages to stdout will be formated for machine processing")
+            ("args_path", po::value<std::filesystem::path>())
             ;
 
         po::options_description run_pos_opts;
         run_pos_opts.add_options()
-            ("alg", po::value<std::string>(&alg_name)->required())
-            ("ref_path", po::value<std::filesystem::path>(&ref_path)->required(), "path to the reference data")
-            ("target_path", po::value<std::filesystem::path>(&target_path)->required(), "path to the target data")
+            ("alg", po::value<std::string>()->required())
+            ("ref_path", po::value<std::filesystem::path>()->required(), "path to the reference data")
+            ("target_path", po::value<std::filesystem::path>()->required(), "path to the target data")
             ;
 
         po::options_description all_run_options;
@@ -332,18 +331,24 @@ int main(int argc, char **argv) {
             );
             po::notify(vm);
 
-            auto fnc = algorithms.find(alg_name);
+            auto fnc = algorithms.find(vm["alg"].as<std::string>());
             if (fnc == algorithms.end()) {
-                std::cerr << "Unknown algorithm \"" << alg_name << "\", expected one of " << get_sorted_keys(algorithms) << std::endl;
+                std::cerr << "Unknown algorithm \"" << vm["alg"].as<std::string>() << "\", expected one of " << get_sorted_keys(algorithms) << std::endl;
                 print_help(std::cerr, argv[0], all_options);
                 return 1;
             }
+
+            auto args_path = vm.count("args_path") ? std::optional<std::filesystem::path>{vm["args_path"].as<std::filesystem::path>()} : std::nullopt;
+            auto ref_path = vm["ref_path"].as<std::filesystem::path>();
+            auto target_path = vm["target_path"].as<std::filesystem::path>();
+            auto out_path = vm["out"].as<std::filesystem::path>();
+            auto measurements_path = vm["times"].as<std::filesystem::path>();
 
             auto normalize = vm["normalize"].as<bool>();
             auto append = vm["append"].as<bool>();
             auto progress = !vm["no_progress"].as<bool>();
             auto validate = vm["validate"];
-            fnc->second(ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
+            fnc->second(args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
         } else if (cmd == "validate") {
             std::vector<std::string> opts = po::collect_unrecognized(parsed.options, po::include_positional);
             opts.erase(opts.begin());
@@ -357,7 +362,10 @@ int main(int argc, char **argv) {
             );
             po::notify(vm);
 
-            validate<double>(target_path, ref_path);
+            auto validate_data = vm["validate_data_path"].as<std::filesystem::path>();
+            auto template_data = vm["template_data_path"].as<std::filesystem::path>();
+
+            validate<double>(validate_data, template_data);
         } else if (cmd == "list") {
             auto algs = get_sorted_keys(algorithms);
             for (auto&& alg: algs) {

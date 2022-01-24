@@ -25,3 +25,21 @@ class InputSize:
                 int(match.group(4))
             )
         raise ValueError(f"Invalid input size {string}")
+
+    @classmethod
+    def from_dict(cls, data) -> "InputSize":
+        return cls(
+            int(data["rows"]),
+            int(data["cols"]),
+            int(data["left_matrices"]),
+            int(data["right_matrices"])
+        )
+
+    @classmethod
+    def from_dict_or_string(cls, data) -> "InputSize":
+        if isinstance(data, str):
+            return cls.from_string(data)
+        elif isinstance(data, dict):
+            return cls.from_dict(data)
+        else:
+            raise TypeError(f"Unexpected argument type {type(data)}")

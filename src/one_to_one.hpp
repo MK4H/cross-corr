@@ -9,6 +9,9 @@
 #include "stopwatch.hpp"
 
 #include "kernels.cuh"
+#include "nlohmann/json.hpp"
+
+using json = nlohmann::json;
 
 namespace cross {
 
@@ -32,7 +35,7 @@ protected:
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class cpu_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    cpu_one_to_one()
+    cpu_one_to_one(const json& args)
         :one_to_one<T, ALLOC>(false, labels.size()), ref_(), target_(), result_()
     {
 
@@ -87,7 +90,7 @@ std::vector<std::string> cpu_one_to_one<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_original_alg_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    naive_original_alg_one_to_one()
+    naive_original_alg_one_to_one(const json& args)
         :one_to_one<T, ALLOC>(false, labels.size()), ref_(), target_(), result_()
     {
 
@@ -164,13 +167,13 @@ std::vector<std::string> naive_original_alg_one_to_one<T, DEBUG, ALLOC>::labels{
     "Kernel"
 };
 
-template<typename T, dsize_t THREADS_PER_BLOCK, bool DEBUG = false, typename ALLOC = std::allocator<T>>
+template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_ring_buffer_row_alg: public one_to_one<T, ALLOC> {
 public:
-    naive_ring_buffer_row_alg()
-        :one_to_one<T, ALLOC> (false, labels.size()), ref_(), target_(), res_()
+    naive_ring_buffer_row_alg(const json& args)
+        :one_to_one<T, ALLOC> (false, labels.size()), ref_(), target_(), res_(), threads_per_block(0)
     {
-
+        threads_per_block = args["threads_per_block"].get<dsize_t>();
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -211,7 +214,8 @@ protected:
                 d_res_,
                 target_.matrix_size(),
                 res_.matrix_size(),
-                THREADS_PER_BLOCK
+                // TODO: Read from args
+                threads_per_block
             )
         );
 
@@ -235,10 +239,12 @@ private:
     T* d_ref_;
     T* d_target_;
     T* d_res_;
+
+    dsize_t threads_per_block;
 };
 
-template<typename T, dsize_t THREADS_PER_BLOCK, bool DEBUG, typename ALLOC>
-std::vector<std::string> naive_ring_buffer_row_alg<T, THREADS_PER_BLOCK, DEBUG, ALLOC>::labels{
+template<typename T, bool DEBUG, typename ALLOC>
+std::vector<std::string> naive_ring_buffer_row_alg<T, DEBUG, ALLOC>::labels{
     "Total",
     "Kernel"
 };
@@ -247,7 +253,7 @@ std::vector<std::string> naive_ring_buffer_row_alg<T, THREADS_PER_BLOCK, DEBUG, 
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_original_alg_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    fft_original_alg_one_to_one()
+    fft_original_alg_one_to_one(const json& args)
         :one_to_one<T, ALLOC>(true, labels.size()), ref_(), target_(), result_(), fft_buffer_size_(0)
     {
 

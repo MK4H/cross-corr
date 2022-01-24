@@ -3,7 +3,7 @@ import sys
 
 from external.input_size import InputSize
 
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 EXECUTABLE_PATH = Path(__file__).parent.parent.parent / "build" / "cross"
@@ -80,6 +80,7 @@ class Executable:
     def run_benchmark(
         self,
         alg: str,
+        args_path: Path,
         left_input_path: Path,
         right_input_path: Path,
         output_data_path: Path,
@@ -95,6 +96,7 @@ class Executable:
             "--out", str(output_data_path.absolute()),
             "--times", str(timings_path.absolute()),
             "--no_progress",
+            "--args_path", str(args_path.absolute())
         ]
 
         positional_args = [

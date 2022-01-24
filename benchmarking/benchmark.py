@@ -2,10 +2,12 @@ import argparse
 import re
 import shutil
 import sys
+import json
+from ruamel.yaml import YAML
 
 import input_generator
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path
 
 from external import input_size, validator, executable
@@ -13,136 +15,308 @@ from external import input_size, validator, executable
 DEFAULT_OUTPUT_PATH = Path.cwd() / "output"
 DEFAULT_ITERATIONS = 100
 
-alg_type_regex = re.compile(".*_([^_]+_to_[^_]+)$")
-def get_algorithm_type(algorithm: str) -> str:
-    match = alg_type_regex.fullmatch(algorithm)
-    if match:
-        return match.group(1)
-    raise ValueError(f"Invalid algorithm name {algorithm}")
+
+class Algorithm:
+    def __init__(
+            self,
+            idx: int,
+            name: str,
+            args: Dict[Any, Any],
+    ):
+        self.idx = idx
+        self.name = name
+        self.type = Algorithm.get_algorithm_type(name)
+        self.args = args
+
+    alg_type_regex = re.compile(".*_([^_]+_to_[^_]+)$")
+
+    @classmethod
+    def get_algorithm_type(cls, algorithm: str) -> str:
+        match = cls.alg_type_regex.fullmatch(algorithm)
+        if match:
+            return match.group(1)
+        raise ValueError(f"Invalid algorithm name {algorithm}")
+
+    @classmethod
+    def from_dict(cls, idx: int, data) -> "Algorithm":
+        return cls(
+            idx,
+            data["name"],
+            data["args"] if "args" in data else {}
+        )
+
+    def create_args_file(self, path: Path):
+        with path.open("w") as f:
+            json.dump(self.args, f)
+
+    def run(
+            self,
+            exe: executable.Executable,
+            args_path: Path,
+            left_input: Path,
+            right_input: Path,
+            iterations: int,
+            result_times_path: Path,
+            result_stats_path: Path,
+            out_data_dir: Path,
+            keep_outputs: bool,
+            validation_data_path: Optional[Path]
+    ):
+        for iteration in range(iterations):
+            print(f"Iteration {iteration}", end="\r")
+            out_data_path = out_data_dir / (f"{iteration}.csv" if keep_outputs else "out.csv")
+            exe.run_benchmark(
+                self.name,
+                args_path,
+                left_input,
+                right_input,
+                out_data_path,
+                result_times_path,
+                result_stats_path,
+                iteration != 0,
+                validation_data_path,
+            )
 
 
-def generate_inputs(
-        index: int,
-        data_dir: Path,
-        sizes: input_size.InputSize,
-        keep_data: bool
-) -> Tuple[Path, Path]:
-    left_path = data_dir / (f"{index}_left_{sizes.rows}_{sizes.columns}_{sizes.left_matrices}.csv" if keep_data else "left.csv")
-    right_path = data_dir / (f"{index}_right_{sizes.rows}_{sizes.columns}_{sizes.right_matrices}.csv" if keep_data else "right.csv")
+class GlobalConfig:
+    def __init__(
+            self,
+            output_path: Path,
+            sizes: Optional[input_size.InputSize],
+            iterations: Optional[int],
+            validate: Optional[bool],
+            keep: Optional[bool],
+    ):
+        self.output_path = output_path
+        self.sizes = sizes
+        self.iterations = iterations
+        self.validate = validate
+        self.keep = keep
 
-    input_generator.generate_matrices(sizes.left_matrices, sizes.rows, sizes.columns, input_generator.OutputFormats.CSV, left_path)
-    input_generator.generate_matrices(sizes.right_matrices, sizes.rows, sizes.columns, input_generator.OutputFormats.CSV, right_path)
+    @property
+    def data_path(self):
+        return self.output_path / "data"
 
-    return left_path, right_path
+    @classmethod
+    def from_dict(cls, data, output_path: Path) -> "GlobalConfig":
+        if data is None:
+            return cls(output_path, None, None, None, None)
+
+        return cls(
+            output_path,
+            [input_size.InputSize.from_dict_or_string(in_size) for in_size in
+             data["sizes"]] if "sizes" in data else None,
+            int(data["iterations"]) if "iterations" in data else None,
+            bool(data["validate"]) if "validate" in data else None,
+            bool(data["keep"]) if "keep" in data else None
+        )
 
 
-def run_bechmarks(
-        exec: executable.Executable,
-        valid: validator.Validator,
-        algs: List[str],
-        sizes: List[input_size.InputSize],
-        iter: int,
-        validate: bool,
-        keep_data: bool,
-        prevent_overwrite: bool,
-        out_dir: Path
-):
-    assert len(algs) != 0, "No algorithms given"
-    assert len(sizes) != 0, "No input sizes given"
-    assert iter > 0, f"Invalid number of iterations \"{iter}\" given"
-    try:
-        alg_type = get_algorithm_type(algs[0])
+class Group:
+    def __init__(
+            self,
+            name: str,
+            algs: List[Algorithm],
+            alg_type: str,
+            sizes: List[input_size.InputSize],
+            result_dir: Path,
+            data_dir: Path,
+            iterations: int,
+            validate: bool,
+            keep: bool
+    ):
+        self.name = name
+        self.algs = algs
+        self.alg_type = alg_type
+        self.sizes = sizes
+        self.result_dir = result_dir
+        self.input_data_dir = data_dir / "inputs"
+        self.output_data_dir = data_dir / "outputs"
+        self.iterations = iterations
+        self.validate = validate
+        self.keep = keep
+
+    @staticmethod
+    def _config_from_dict(
+            data,
+            global_config: GlobalConfig
+    ) -> Tuple[Optional[List[input_size.InputSize]], Optional[int], Optional[bool], Optional[bool]]:
+        if data is None:
+            return global_config.sizes, global_config.iterations, global_config.validate, global_config.keep
+        sizes = [input_size.InputSize.from_dict_or_string(in_size) for in_size in data["sizes"]] if "sizes" in data else global_config.sizes
+        iterations = int(data["iterations"]) if "iterations" in data else global_config.iterations
+        validate = bool(data["validate"]) if "validate" in data else global_config.validate
+        keep = bool(data["keep"]) if "keep" in data else global_config.keep
+
+        return sizes, iterations, validate, keep
+
+    @classmethod
+    def from_dict(cls, data, global_config: GlobalConfig, index: int, exe: executable.Executable,):
+        name = str(data['name']) if "name" in data else str(index)
+        sizes, iterations, validate, keep = cls._config_from_dict(data.get("config", None), global_config)
+
+        assert sizes is not None, "Missing list of sizes"
+        assert iterations is not None, "Missing number of iterations"
+        validate = validate if validate is not None else False
+        keep = keep if keep is not None else False
+
+        assert len(sizes) != 0, "No input sizes given"
+        assert iterations > 0, f"Invalid number of iterations \"{iter}\" given"
+
+        unique_name = f"{index}_{data['name']}" if "name" in data else str(index)
+        group_dir = global_config.output_path / unique_name
+        group_data_dir = global_config.data_path / unique_name
+
+        try:
+            algs = [Algorithm.from_dict(alg_idx, alg) for alg_idx, alg in enumerate(data["algorithms"])]
+        except ValueError as e:
+            print(e)
+            sys.exit(1)
+        assert len(algs) != 0, "No algorithms given"
+
+        alg_type = algs[0].type
         for alg in algs:
-            if get_algorithm_type(alg) != alg_type:
+            if alg.type != alg_type:
                 print(
-                    f"All algorithms have to be of the same type, got {get_algorithm_type(alg)} and {alg_type} types",
+                    f"All algorithms have to be of the same type, got {alg.type} and {alg_type} types",
                     file=sys.stderr,
                 )
                 sys.exit(1)
-    except ValueError as e:
-        print(e)
-        sys.exit(1)
 
-    for in_size in sizes:
-        if not exec.validate_input_size(alg_type, in_size):
-            print(
-                f"Input size {in_size} cannot be used with algorithms of type {alg_type}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        for in_size in sizes:
+            if not exe.validate_input_size(alg_type, in_size):
+                print(
+                    f"Input size {in_size} cannot be used with algorithms of type {alg_type}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
 
-    try:
-        out_dir.mkdir(exist_ok=not prevent_overwrite, parents=True)
-    except FileExistsError:
-        print(
-            f"Output directory {out_dir} already exists and overwrite_check was enabled. Disable with --no_overwrite_check",
-            file=sys.stderr,
-        )
-        sys.exit(3)
+        return cls(name, algs, alg_type, sizes, group_dir, group_data_dir, iterations, validate, keep)
 
-    data_dir = out_dir / "data"
-    data_dir.mkdir(exist_ok=True, parents=True)
+    def generate_inputs(
+            self,
+            index: int,
+            size: input_size.InputSize,
+    ) -> Tuple[Path, Path]:
+        left_path = self.input_data_dir / (
+            f"{index}_left_{size.rows}_{size.columns}_{size.left_matrices}.csv" if self.keep else "left.csv")
+        right_path = self.input_data_dir / (
+            f"{index}_right_{size.rows}_{size.columns}_{size.right_matrices}.csv" if self.keep else "right.csv")
 
-    print(f"All files will be stored under {str(out_dir.absolute())}")
-    for idx, in_size in enumerate(sizes):
-        print(f"Generating inputs of size {in_size}")
-        left_path, right_path = generate_inputs(idx, data_dir, in_size, keep_data)
+        input_generator.generate_matrices(size.left_matrices, size.rows, size.columns,
+                                          input_generator.OutputFormats.CSV, left_path)
+        input_generator.generate_matrices(size.right_matrices, size.rows, size.columns,
+                                          input_generator.OutputFormats.CSV, right_path)
 
-        if validate:
-            print(f"Generating validation data")
-            validation_data_path = data_dir / f"{idx}_valid_{in_size.rows}_{in_size.columns}_{in_size.left_matrices}_{in_size.right_matrices}.csv"
-            valid.generate_validation_data(
-                alg_type,
-                left_path,
-                right_path,
-                validation_data_path
-            )
-        else:
-            validation_data_path = None
+        return left_path, right_path
 
-        for alg in algs:
-            msg = f"Benchmarking {alg} for {in_size}"
-            print(msg)
+    def cleanup(self):
+        shutil.rmtree(self.input_data_dir, ignore_errors=True)
+        shutil.rmtree(self.output_data_dir, ignore_errors=True)
 
-            measurement_suffix = f"{alg}_{in_size}"
-            measurement_data_dir = data_dir / f"output_{measurement_suffix}"
-            measurement_data_dir.mkdir(exist_ok=True, parents=True)
+    def run(
+            self,
+            exe: executable.Executable,
+            valid: validator.Validator,
+            prevent_override: bool
+    ):
+        self.result_dir.mkdir(exist_ok=not prevent_override, parents=True)
+        self.cleanup()
 
-            measurement_results_path = out_dir / f"{measurement_suffix}_time.csv"
-            measurement_output_stats_path = out_dir / f"{measurement_suffix}_output_stats.csv"
+        self.input_data_dir.mkdir(parents=True)
+        self.output_data_dir.mkdir(parents=True)
 
-            for iteration in range(iter):
-                print(f"Iteration {iteration}", end="\r")
-                out_data_path = measurement_data_dir / (f"{iteration}.csv" if keep_data else "out.csv")
-                exec.run_benchmark(
-                    alg,
+        for alg in self.algs:
+            args_path = self.input_data_dir / f"{alg.idx}_{alg.name}_args.json"
+            alg.create_args_file(args_path)
+
+        for input_idx, in_size in enumerate(self.sizes):
+            print(f"[{self.name}] Generating inputs {input_idx + 1}/{len(self.sizes)} of size {in_size}")
+            left_path, right_path = self.generate_inputs(input_idx, in_size)
+
+            if self.validate:
+                print(f"[{self.name}] Generating validation data")
+                validation_data_path = self.input_data_dir / f"{input_idx}_valid_{in_size.rows}_{in_size.columns}_{in_size.left_matrices}_{in_size.right_matrices}.csv"
+                valid.generate_validation_data(
+                    self.alg_type,
                     left_path,
                     right_path,
-                    out_data_path,
+                    validation_data_path
+                )
+            else:
+                validation_data_path = None
+
+            for alg in self.algs:
+                msg = f"[{self.name}] Benchmarking {alg.idx + 1}/{len(self.algs)} {alg.name} for {in_size}"
+                print(msg)
+
+                args_path = self.input_data_dir / f"{alg.idx}_{alg.name}_args.json"
+
+                measurement_suffix = f"{input_idx}_{alg.idx}_{alg.name}_{in_size}"
+                out_data_dir = self.output_data_dir / f"{measurement_suffix}"
+                out_data_dir.mkdir(parents=True)
+
+                measurement_results_path = self.result_dir / f"{measurement_suffix}_time.csv"
+                measurement_output_stats_path = self.result_dir / f"{measurement_suffix}_output_stats.csv"
+
+                alg.run(
+                    exe,
+                    args_path,
+                    left_path,
+                    right_path,
+                    self.iterations,
                     measurement_results_path,
                     measurement_output_stats_path,
-                    iteration != 0,
-                    validation_data_path,
+                    out_data_dir,
+                    self.keep,
+                    validation_data_path
                 )
 
-            print(f"Measured times: {str(measurement_results_path.absolute())}")
-            if validate:
-                print(f"Result data stats: {str(measurement_output_stats_path.absolute())}")
-            print("-"*len(msg))
+                print(f"Measured times: {str(measurement_results_path.absolute())}")
+                if self.validate:
+                    print(f"Result data stats: {str(measurement_output_stats_path.absolute())}")
+                print("-" * len(msg))
+        if not self.keep:
+            self.cleanup()
 
-    if not keep_data:
-        shutil.rmtree(data_dir)
+
+def parse_benchmark_config(path: Path):
+    yaml = YAML(typ='safe', pure=True)
+    return yaml.load(path)
+
+
+def run_bechmarks(
+        exe: executable.Executable,
+        valid: validator.Validator,
+        benchmark_def_file: Path,
+        prevent_overwrite: bool,
+        out_dir_path: Optional[Path]
+):
+
+    definition = parse_benchmark_config(benchmark_def_file)
+    benchmark = definition["benchmark"]
+    name = benchmark["name"]
+    if out_dir_path is None:
+        out_dir_path = benchmark_def_file.parent / name
+    elif not out_dir_path.is_absolute():
+        out_dir_path = benchmark_def_file.parent / out_dir_path
+
+    global_config = GlobalConfig.from_dict(benchmark.get("config", None), out_dir_path)
+    groups = [Group.from_dict(group_data, global_config, group_idx, exe) for group_idx, group_data in enumerate(benchmark["groups"])]
+    for group_idx, group in enumerate(groups):
+        print(f"-- Running group {group_idx + 1}/{len(groups)} {group.name} --")
+        group.run(
+            exe,
+            valid,
+            prevent_overwrite
+        )
 
 
 def _run_benchmarks(args: argparse.Namespace):
     run_bechmarks(
         executable.Executable(args.executable_path),
         validator.Validator(args.validator_path),
-        args.algorithms,
-        args.sizes,
-        args.iterations,
-        args.validate,
-        args.keep,
+        args.benchmark_definition_path,
         not args.no_overwrite_check,
         args.output_path
     )
@@ -159,32 +333,14 @@ def _list_algs(args: argparse.Namespace):
 
 def benchmark_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-o", "--output_path",
-                        default=DEFAULT_OUTPUT_PATH,
                         type=Path,
-                        help=f"Output directory path (defaults to {str(DEFAULT_OUTPUT_PATH)})")
-    parser.add_argument("-a", "--algorithms",
-                        nargs="+",
-                        required=True,
-                        type=str,
-                        help="Algorithms to benchmark")
-    parser.add_argument("-s", "--sizes",
-                        nargs="+",
-                        required=True,
-                        type=input_size.InputSize.from_string,
-                        help="Sizes of input to benchmark with in the format <rows>x<columns>x<left_matrices>x<right_matrices>")
-    parser.add_argument("-i", "--iterations",
-                        default=DEFAULT_ITERATIONS,
-                        type=int,
-                        help=f"Number of iterations for each configuration (defaults to {str(DEFAULT_ITERATIONS)})")
-    parser.add_argument("-v", "--validate",
-                        action="store_true",
-                        help="Generate valid outputs using validator and validate that the benchmark outputs match")
-    parser.add_argument("-k", "--keep",
-                        action="store_true",
-                        help="Keep inputs, outputs and possible validation outputs")
+                        help=f"Output directory path (defaults to the name of the benchmark)")
     parser.add_argument("--no_overwrite_check",
                         action="store_true",
                         help="Disable check which prevents overwrite of the output directory")
+    parser.add_argument("benchmark_definition_path",
+                        type=Path,
+                        help="Path to the benchmark definition YAML file")
     parser.set_defaults(action=_run_benchmarks)
 
 

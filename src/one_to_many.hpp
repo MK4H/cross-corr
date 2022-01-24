@@ -33,7 +33,7 @@ protected:
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class cpu_one_to_many: public one_to_many<T, ALLOC> {
 public:
-    cpu_one_to_many()
+    cpu_one_to_many(const json& args)
         :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_()
     {
 
@@ -90,7 +90,7 @@ std::vector<std::string> cpu_one_to_many<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_original_alg_one_to_many: public one_to_many<T, ALLOC> {
 public:
-    naive_original_alg_one_to_many()
+    naive_original_alg_one_to_many(const json& args)
         :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_()
     {
 
@@ -169,13 +169,14 @@ std::vector<std::string> naive_original_alg_one_to_many<T, DEBUG, ALLOC>::labels
     "Kernel"
 };
 
-template<typename T, dsize_t THREADS_PER_BLOCK, bool DEBUG = false, typename ALLOC = std::allocator<T>>
+template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_def_per_block: public one_to_many<T, ALLOC> {
 public:
-    naive_def_per_block()
-        :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_()
+    naive_def_per_block(const json& args)
+        :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_(), num_blocks_(), threads_per_block_()
     {
-
+        num_blocks_ = args["num_blocks"].get<dsize_t>();
+        threads_per_block_ = args["threads_per_block"].get<dsize_t>();
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -222,7 +223,7 @@ protected:
                 results_.matrix_size(),
                 targets_.num_matrices(),
                 num_blocks,
-                THREADS_PER_BLOCK
+                threads_per_block_
             )
         );
 
@@ -245,10 +246,13 @@ private:
     T* d_ref_;
     T* d_targets_;
     T* d_results_;
+
+    dsize_t num_blocks_;
+    dsize_t threads_per_block_;
 };
 
-template<typename T, dsize_t THREADS_PER_BLOCK, bool DEBUG, typename ALLOC>
-std::vector<std::string> naive_def_per_block<T, THREADS_PER_BLOCK, DEBUG, ALLOC>::labels{
+template<typename T, bool DEBUG, typename ALLOC>
+std::vector<std::string> naive_def_per_block<T, DEBUG, ALLOC>::labels{
     "Total",
     "Kernel"
 };
@@ -256,7 +260,7 @@ std::vector<std::string> naive_def_per_block<T, THREADS_PER_BLOCK, DEBUG, ALLOC>
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_original_alg_one_to_many: public one_to_many<T, ALLOC> {
 public:
-    fft_original_alg_one_to_many()
+    fft_original_alg_one_to_many(const json& args)
         :one_to_many<T, ALLOC>(true, labels.size()), ref_(), targets_(), results_(), fft_buffer_size_(0)
     {
 
