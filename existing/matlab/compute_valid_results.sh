@@ -9,4 +9,4 @@ then
     exit 1
 fi
 
-matlab -nodisplay -nosplash -nodesktop -r "alg = '$1'; in1_path = '$2'; in2_path = '$3'; out_path = '$4'; run('${DIR}/compute_valid.m'); exit;"
+matlab -nodisplay -nosplash -nodesktop -r "alg = '$1'; in1_path = '$2'; in2_path = '$3'; out_path = '$4'; run('${DIR}/cross_corr.m'); exit;"

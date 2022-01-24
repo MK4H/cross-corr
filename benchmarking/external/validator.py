@@ -3,7 +3,7 @@ import sys
 
 from pathlib import Path
 
-VALIDATOR_PATH = Path(__file__).parent.parent.parent / "validator" / "compute_valid_results.sh"
+VALIDATOR_PATH = Path(__file__).parent.parent.parent / "existing" / "matlab" / "compute_valid_results.sh"
 
 
 class Validator:
