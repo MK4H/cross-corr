@@ -16,16 +16,18 @@ DEFAULT_OUTPUT_PATH = Path.cwd() / "output"
 DEFAULT_ITERATIONS = 100
 
 
-class Algorithm:
+class Run:
     def __init__(
             self,
             idx: int,
             name: str,
+            algorithm: str,
             args: Dict[Any, Any],
     ):
         self.idx = idx
         self.name = name
-        self.type = Algorithm.get_algorithm_type(name)
+        self.algorithm = algorithm
+        self.algorithm_type = Run.get_algorithm_type(algorithm)
         self.args = args
 
     alg_type_regex = re.compile(".*_([^_]+_to_[^_]+)$")
@@ -38,10 +40,11 @@ class Algorithm:
         raise ValueError(f"Invalid algorithm name {algorithm}")
 
     @classmethod
-    def from_dict(cls, idx: int, data) -> "Algorithm":
+    def from_dict(cls, idx: int, data) -> "Run":
         return cls(
             idx,
-            data["name"],
+            data["name"] if "name" in data else str(idx),
+            data["algorithm"],
             data["args"] if "args" in data else {}
         )
 
@@ -66,7 +69,7 @@ class Algorithm:
             print(f"Iteration {iteration}", end="\r")
             out_data_path = out_data_dir / (f"{iteration}.csv" if keep_outputs else "out.csv")
             exe.run_benchmark(
-                self.name,
+                self.algorithm,
                 args_path,
                 left_input,
                 right_input,
@@ -116,7 +119,7 @@ class Group:
     def __init__(
             self,
             name: str,
-            algs: List[Algorithm],
+            runs: List[Run],
             alg_type: str,
             sizes: List[input_size.InputSize],
             result_dir: Path,
@@ -126,7 +129,7 @@ class Group:
             keep: bool
     ):
         self.name = name
-        self.algs = algs
+        self.runs = runs
         self.alg_type = alg_type
         self.sizes = sizes
         self.result_dir = result_dir
@@ -168,17 +171,17 @@ class Group:
         group_data_dir = global_config.data_path / unique_name
 
         try:
-            algs = [Algorithm.from_dict(alg_idx, alg) for alg_idx, alg in enumerate(data["algorithms"])]
+            runs = [Run.from_dict(run_idx, run) for run_idx, run in enumerate(data["runs"])]
         except ValueError as e:
             print(e)
             sys.exit(1)
-        assert len(algs) != 0, "No algorithms given"
+        assert len(runs) != 0, "No runs given"
 
-        alg_type = algs[0].type
-        for alg in algs:
-            if alg.type != alg_type:
+        alg_type = runs[0].algorithm_type
+        for run in runs:
+            if run.algorithm_type != alg_type:
                 print(
-                    f"All algorithms have to be of the same type, got {alg.type} and {alg_type} types",
+                    f"All algorithms have to be of the same type, got {run.algorithm_type} and {alg_type} types",
                     file=sys.stderr,
                 )
                 sys.exit(1)
@@ -191,7 +194,7 @@ class Group:
                 )
                 sys.exit(1)
 
-        return cls(name, algs, alg_type, sizes, group_dir, group_data_dir, iterations, validate, keep)
+        return cls(name, runs, alg_type, sizes, group_dir, group_data_dir, iterations, validate, keep)
 
     def generate_inputs(
             self,
@@ -214,6 +217,11 @@ class Group:
         shutil.rmtree(self.input_data_dir, ignore_errors=True)
         shutil.rmtree(self.output_data_dir, ignore_errors=True)
 
+    def log_step(self, step: int, num_steps: int, message: str) -> int:
+        print(f"[{self.name}][{step}/{num_steps}] {message}")
+        return step + 1
+
+
     def run(
             self,
             exe: executable.Executable,
@@ -226,16 +234,19 @@ class Group:
         self.input_data_dir.mkdir(parents=True)
         self.output_data_dir.mkdir(parents=True)
 
-        for alg in self.algs:
-            args_path = self.input_data_dir / f"{alg.idx}_{alg.name}_args.json"
-            alg.create_args_file(args_path)
+        for run in self.runs:
+            args_path = self.input_data_dir / f"{run.idx}_{run.name}_args.json"
+            run.create_args_file(args_path)
+
+        num_steps = len(self.sizes) * len(self.runs) + len(self.sizes) + (len(self.sizes) if self.validate else 0)
+        step = 1
 
         for input_idx, in_size in enumerate(self.sizes):
-            print(f"[{self.name}] Generating inputs {input_idx + 1}/{len(self.sizes)} of size {in_size}")
+            step = self.log_step(step, num_steps, f"Generating inputs of size {in_size}")
             left_path, right_path = self.generate_inputs(input_idx, in_size)
 
             if self.validate:
-                print(f"[{self.name}] Generating validation data")
+                step = self.log_step(step, num_steps, f"Generating validation data")
                 validation_data_path = self.input_data_dir / f"{input_idx}_valid_{in_size.rows}_{in_size.columns}_{in_size.left_matrices}_{in_size.right_matrices}.csv"
                 valid.generate_validation_data(
                     self.alg_type,
@@ -246,20 +257,19 @@ class Group:
             else:
                 validation_data_path = None
 
-            for alg in self.algs:
-                msg = f"[{self.name}] Benchmarking {alg.idx + 1}/{len(self.algs)} {alg.name} for {in_size}"
-                print(msg)
+            for run in self.runs:
+                step = self.log_step(step, num_steps, f"Benchmarking {run.name} for {in_size}")
 
-                args_path = self.input_data_dir / f"{alg.idx}_{alg.name}_args.json"
+                args_path = self.input_data_dir / f"{run.idx}_{run.name}_args.json"
 
-                measurement_suffix = f"{input_idx}_{alg.idx}_{alg.name}_{in_size}"
+                measurement_suffix = f"{input_idx}_{run.idx}_{run.name}_{in_size}"
                 out_data_dir = self.output_data_dir / f"{measurement_suffix}"
                 out_data_dir.mkdir(parents=True)
 
                 measurement_results_path = self.result_dir / f"{measurement_suffix}_time.csv"
                 measurement_output_stats_path = self.result_dir / f"{measurement_suffix}_output_stats.csv"
 
-                alg.run(
+                run.run(
                     exe,
                     args_path,
                     left_path,
@@ -272,10 +282,12 @@ class Group:
                     validation_data_path
                 )
 
-                print(f"Measured times: {str(measurement_results_path.absolute())}")
+                last_msg = f"Measured times: {str(measurement_results_path.absolute())}"
+                print(last_msg)
                 if self.validate:
-                    print(f"Result data stats: {str(measurement_output_stats_path.absolute())}")
-                print("-" * len(msg))
+                    last_msg = f"Result data stats: {str(measurement_output_stats_path.absolute())}"
+                    print(last_msg)
+                print("-" * len(last_msg))
         if not self.keep:
             self.cleanup()
 
@@ -304,7 +316,7 @@ def run_bechmarks(
     global_config = GlobalConfig.from_dict(benchmark.get("config", None), out_dir_path)
     groups = [Group.from_dict(group_data, global_config, group_idx, exe) for group_idx, group_data in enumerate(benchmark["groups"])]
     for group_idx, group in enumerate(groups):
-        print(f"-- Running group {group_idx + 1}/{len(groups)} {group.name} --")
+        print(f"-- [{group_idx + 1}/{len(groups)}] Running group {group.name} --")
         group.run(
             exe,
             valid,
