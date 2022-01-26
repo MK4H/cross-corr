@@ -21,6 +21,8 @@ class Validator:
             [
                 str(self.validator_path.absolute()),
                 alg_type,
+                # TODO: Add as commandline argument
+                "single",
                 str(left_path.absolute()),
                 str(right_path.absolute()),
                 str(out_path.absolute())

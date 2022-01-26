@@ -70,6 +70,27 @@ void cuda_memcpy_to_device(typename DATA::value_type* dst, DATA& src) {
 	cuda_memcpy_to_device(dst, src.data(), src.size());
 }
 
+template<typename T>
+void cuda_memset(T* p, int value, dsize_t num_elements) {
+	cudaMemset(p, value, num_elements * sizeof(T));
+}
+
+template<typename T>
+void cuda_memcpy2D_to_device(T* dst, dsize_t dst_width, T* src, dsize_t src_width, dsize_t columns, dsize_t rows) {
+	CUCH(cudaMemcpy2D(
+		dst,
+		dst_width * sizeof(T),
+		src,
+		src_width * sizeof(T),
+		columns * sizeof(T),
+		rows,
+		cudaMemcpyHostToDevice));
+}
+
+template<typename DATA>
+void cuda_memcpy2D_to_device(typename DATA::value_type* dst, dsize_t dst_width, DATA& src) {
+	cuda_memcpy2D_to_device(dst, dst_width, src, src.matrix_size().x, src.matrix_size().x, src.matrix_size().y);
+}
 
 template<typename T>
 void cuda_memcpy_from_device(T* dst, T* src, dsize_t num) {

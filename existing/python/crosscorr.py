@@ -2,7 +2,7 @@ import argparse
 
 import numpy as np
 
-from typing import Tuple
+from typing import Tuple, Any
 
 from scipy import signal
 from pathlib import Path
@@ -102,6 +102,7 @@ def n_to_m(
 
 def run_cross_corr(
         alg: str,
+        data_type: Any,
         left_input: Path,
         right_input: Path,
         output: Path
@@ -117,8 +118,8 @@ def run_cross_corr(
         alg_names = ", ".join(algs.keys())
         raise ValueError(f"Invalid algorithm {alg}, expected one of {alg_names}")
 
-    left = MatrixArray.load_from_csv(left_input)
-    right = MatrixArray.load_from_csv(right_input)
+    left = MatrixArray.load_from_csv(left_input, data_type)
+    right = MatrixArray.load_from_csv(right_input, data_type)
 
     result = algs[alg](left, right)
     with output.open("w") as f:
@@ -126,8 +127,14 @@ def run_cross_corr(
 
 
 def _run_cross_corr(args: argparse.Namespace):
+    if args.data_type == "single":
+        data_type = np.single
+    else:
+        data_type = np.double
+
     run_cross_corr(
         args.algorithm,
+        data_type,
         args.left_input_path,
         args.right_input_path,
         args.output_path
@@ -139,6 +146,11 @@ def arguments(parser: argparse.ArgumentParser):
                         default=DEFAULT_OUTPUT_PATH,
                         type=Path,
                         help=f"Output directory path (defaults to {str(DEFAULT_OUTPUT_PATH)})")
+    parser.add_argument("-d", "--data_type",
+                        default="single",
+                        choices=["single", "double"],
+                        help="Datatype to be used for computation"
+                        )
     parser.add_argument("algorithm",
                         type=str,
                         help="Algorithms to run")

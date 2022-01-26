@@ -71,4 +71,16 @@ void run_ccn_def_per_block(
     dsize_t threads_per_block
 );
 
+template<typename T>
+void run_scatter(
+    const T* __restrict__ src,
+    T* __restrict__ dst,
+    dsize2_t src_matrix_size,
+    dsize_t src_num_matrices,
+    dsize2_t dst_matrix_size,
+    dsize2_t dst_pos,
+    dsize_t threads_per_block,
+    dsize_t items_per_threads
+);
+
 }

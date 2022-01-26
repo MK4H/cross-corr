@@ -131,7 +131,9 @@ void naive_cpu_cross_corr(const MAT1& ref, const MAT2& target, MAT3&& res) {
 
 template<typename MAT1, typename MAT2>
 validation_results validate_result(const MAT1& result, const MAT2& valid_result) {
-    // TODO: Throw when number of elements does not match
+    if (result.size() != valid_result.size()) {
+        throw std::runtime_error("Cannot validate matrices of different sizes");
+    }
 
     std::vector<double> differences;
 
@@ -141,7 +143,11 @@ validation_results validate_result(const MAT1& result, const MAT2& valid_result)
         std::begin(valid_result),
         std::back_inserter(differences),
         [](typename MAT1::value_type a, typename MAT2::value_type b){
-            return a - b;
+            constexpr typename MAT1::value_type epsilon = 1e-5;
+            if (abs(a) <= epsilon && abs(b) <= epsilon) {
+                return static_cast<typename MAT1::value_type>(0);
+            }
+            return abs(a - b)/std::max(abs(a), abs(b));
         });
 
     accs::accumulator_set<

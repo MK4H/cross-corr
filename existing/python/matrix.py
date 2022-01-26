@@ -3,7 +3,7 @@ import re
 import numpy as np
 
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Any
 
 
 class MatrixArray:
@@ -18,7 +18,7 @@ class MatrixArray:
         return cls(matrix_size, num_matrices, data)
 
     @classmethod
-    def load_from_csv(cls, path: Path) -> "MatrixArray":
+    def load_from_csv(cls, path: Path, data_type: Any) -> "MatrixArray":
         with path.open("r") as f:
             header = f.readline()
             match = re.fullmatch("# ([0-9]+),([0-9]+),([0-9]+)?", header.strip())
@@ -29,7 +29,7 @@ class MatrixArray:
             else:
                 raise ValueError(f"Failed to read header from {str(path)}")
 
-        data = np.loadtxt(path, dtype=float, delimiter=",")
+        data = np.loadtxt(path, dtype=data_type, delimiter=",")
         return cls((rows, cols), num_matrices, data)
 
     def save_to_csv(self, file):

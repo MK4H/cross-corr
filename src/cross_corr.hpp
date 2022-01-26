@@ -56,20 +56,38 @@ public:
     using data_type = T;
 
     cross_corr_alg(bool is_fft, std::size_t num_measurements)
-        :is_fft_(is_fft), sw_(num_measurements)
+        :is_fft_(is_fft), sw_(num_measurements + labels.size())
     {}
 
-    void prepare(const std::filesystem::path& ref_path, const std::filesystem::path& def_path) {
+    void load(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) {
         this->start_timer();
-        prepare_impl(ref_path, def_path);
+        CPU_MEASURE(1,
+            load_impl(ref_path, target_path);
+        );
+    }
+
+    void prepare() {
+        CPU_MEASURE(2,
+            prepare_impl();
+        );
+    }
+
+    void transfer() {
+        CPU_MEASURE(3,
+            transfer_impl();
+        );
     }
 
     void run() {
-        run_impl();
+        CPU_MEASURE(4,
+            run_impl();
+        );
     }
 
     void finalize() {
-        finalize_impl();
+        CPU_MEASURE(5,
+            finalize_impl();
+        );
         sw_.cpu_measure(0, start_);
     }
 
@@ -90,7 +108,17 @@ public:
     }
 
 
-    virtual const std::vector<std::string>& measurement_labels() const = 0;
+    std::vector<std::string> measurement_labels() const {
+        auto ret = labels;
+        auto child_labels = measurement_labels_impl();
+        ret.insert(
+            ret.end(),
+            std::make_move_iterator(child_labels.begin()),
+            std::make_move_iterator(child_labels.end())
+        );
+
+        return ret;
+    };
 
     bool is_fft() const {
         return is_fft_;
@@ -104,9 +132,36 @@ protected:
     bool is_fft_;
     stopwatch<sw_clock> sw_;
 
-    virtual void prepare_impl(const std::filesystem::path& ref_path, const std::filesystem::path& def_path) = 0;
+    static void check_matrices_same_size(const data_array<T, ALLOC>& ref, const data_array<T, ALLOC>& target) {
+        if (ref.matrix_size() != target.matrix_size()) {
+            throw std::runtime_error(
+                "Invalid input matrix sizes, expected ref and target to be the same size: ref = "s +
+                to_string(ref.matrix_size()) +
+                " target = "s +
+                to_string(target.matrix_size())
+            );
+        }
+    }
+
+    dsize_t label_index(dsize_t idx) const {
+        return labels.size() + idx;
+    }
+
+    virtual std::vector<std::string> measurement_labels_impl() const {
+        return std::vector<std::string>{};
+    }
+
+    virtual void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) = 0;
+    virtual void prepare_impl() {
+
+    }
+    virtual void transfer_impl() {
+
+    }
     virtual void run_impl() = 0;
-    virtual void finalize_impl() = 0;
+    virtual void finalize_impl() {
+
+    }
     virtual data_array<T> get_valid_results() const = 0;
 
     void start_timer() {
@@ -116,15 +171,25 @@ protected:
     sw_clock::time_point start_;
 
 private:
+    static std::vector<std::string> labels;
+
     data_array<T> valid_results(const std::optional<std::filesystem::path>& valid_data_path = std::nullopt) const {
         if (valid_data_path.has_value()) {
             return load_matrix_array_from_csv<T, no_padding>(*valid_data_path);
         } else {
             return get_valid_results();
         }
-
     }
 };
 
+template<typename T, typename ALLOC>
+std::vector<std::string> cross_corr_alg<T, ALLOC>::labels{
+    "Total",
+    "Load",
+    "Prepare",
+    "Transfer",
+    "Run",
+    "Finalize"
+};
 
 }

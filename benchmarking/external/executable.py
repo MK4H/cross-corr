@@ -87,7 +87,8 @@ class Executable:
         timings_path: Path,
         output_stats_path: Path,
         append: bool,
-        validation_data_path: Optional[Path]
+        validation_data_path: Optional[Path],
+        verbose: bool
     ):
         # Must be joined after the optional args
         # as boost program options does not handle optional values
@@ -114,11 +115,14 @@ class Executable:
         if append:
             optional_options.append("--append")
 
+        command = [str(self.executable_path.absolute()), "run"] + optional_options + default_options + positional_args
         res = sp.run(
-            [str(self.executable_path.absolute()), "run"] + optional_options + default_options + positional_args,
+            command,
             capture_output=True,
             text=True
         )
+        if verbose:
+            print(f"Command: {command}")
 
         if res.returncode != 0:
             print("Failed to run benchmark", file=sys.stderr)

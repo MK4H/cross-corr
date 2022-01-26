@@ -13,9 +13,9 @@ try
         'Computing cross-correlation of "%s" and "%s" using the %s algorithm, writing results to "%s"\n',...
         in1_path, in2_path, alg, out_path);
 
-    % in1_path and in2_path set externally
-    [in1_matrix_size, in1_num_matrices, in1_data] = parseInput(in1_path);
-    [in2_matrix_size, in2_num_matrices, in2_data] = parseInput(in2_path);
+    % in1_path, in2_path and data_type set externally
+    [in1_matrix_size, in1_num_matrices, in1_data] = parseInput(in1_path, data_type);
+    [in2_matrix_size, in2_num_matrices, in2_data] = parseInput(in2_path, data_type);
 
     switch alg
     case 'one_to_one'
@@ -105,7 +105,7 @@ catch err
     exit(2)
 end
 
-function [matrix_size, num_matrices, data] = parseInput(path)
+function [matrix_size, num_matrices, data] = parseInput(path, data_type)
     fid = fopen(path, 'r');
     header = textscan(fid, '# %u%u%u', 'Delimiter', ',', 'ReturnOnError', 1);
     fclose(fid);
@@ -117,5 +117,5 @@ function [matrix_size, num_matrices, data] = parseInput(path)
     else
         num_matrices = 1;
     end
-    data = readmatrix(path, 'NumHeaderLines', 1);
+    data = readmatrix(path, 'NumHeaderLines', 1, 'OutputType', data_type);
 end

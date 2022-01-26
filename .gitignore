@@ -3,3 +3,4 @@ build
 .idea
 .vscode
 __pycache__
+benchmarking/benchmarks

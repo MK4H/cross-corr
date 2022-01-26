@@ -1,7 +1,11 @@
 import argparse
 import tempfile
+import itertools
 
 from pathlib import Path
+from typing import List
+
+import pandas as pd
 
 from external import validator, executable
 
@@ -49,6 +53,24 @@ def validate_from_pregenerated(
     exe.validate_output(data_path, valid_data_path)
 
 
+def validate_result_stats(
+    limit: float,
+    files: List[Path],
+    groups: List[Path]
+):
+    group_files = [group.glob("*_output_stats.csv") for group in groups]
+    files.extend(itertools.chain.from_iterable(group_files))
+
+    for file in files:
+        data = pd.read_csv(
+            file
+        )
+
+        max = data["Max"].max()
+        if abs(max) > limit:
+            print(f"{str(file.absolute())}: Value {max} out of bounds (limit {limit})")
+
+
 def _validate_from_inputs(args: argparse.Namespace):
     validate_from_inputs(
         validator.Validator(args.validator_path),
@@ -76,6 +98,14 @@ def _validate_from_pregenerated(args: argparse.Namespace):
         args.data_path,
         args.valid_data_path,
     )
+
+def _validate_result_stats(args: argparse.Namespace):
+    validate_result_stats(
+        args.limit,
+        args.files,
+        args.groups,
+    )
+
 
 
 def validate_from_inputs_arguments(parser: argparse.ArgumentParser):
@@ -121,6 +151,21 @@ def validate_from_pregenerated_arguments(parser: argparse.ArgumentParser):
     parser.set_defaults(action=_validate_from_pregenerated)
 
 
+def validate_stats_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument("-g", "--groups",
+                        nargs="+",
+                        type=Path,
+                        help="Benchmark groups to validate all results from"
+                        )
+    parser.add_argument("limit",
+                        type=float,
+                        help="Max allowed error")
+    parser.add_argument("files",
+                        nargs="*",
+                        type=Path,
+                        help="Result statistic files to validate")
+    parser.set_defaults(action=_validate_result_stats)
+
 def global_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-e", "--executable_path",
                         default=executable.EXECUTABLE_PATH,
@@ -152,6 +197,12 @@ def add_subparsers(parser: argparse.ArgumentParser):
         subparsers.add_parser(
             "generate",
             help="Generate valid output from inputs"
+        )
+    )
+    validate_stats_arguments(
+        subparsers.add_parser(
+            "stats",
+            help="Validate output statistics"
         )
     )
 

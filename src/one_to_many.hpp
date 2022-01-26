@@ -50,28 +50,26 @@ public:
         return results_;
     }
 
-    const std::vector<std::string>& measurement_labels() const override {
-        return labels;
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_matrices_same_size(ref_, targets_);
     }
 
-protected:
-    void prepare_impl(const std::filesystem::path& ref_path, const std::filesystem::path& def_path) override {
-        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
-        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(def_path);
-
+    void prepare_impl() override {
         auto result_matrix_size = ref_.matrix_size() + targets_.matrix_size() - 1;
         results_ = data_array<T, ALLOC>{result_matrix_size, targets_.num_matrices()};
-
     }
 
     void run_impl() override {
         cpu_cross_corr_one_to_many(ref_, targets_, results_);
     }
 
-    void finalize_impl() override {
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
     }
-
-
 private:
     static std::vector<std::string> labels;
 
@@ -83,7 +81,6 @@ private:
 
 template<typename T, bool DEBUG, typename ALLOC>
 std::vector<std::string> cpu_one_to_many<T, DEBUG, ALLOC>::labels{
-    "Total",
 };
 
 
@@ -107,27 +104,30 @@ public:
         return results_;
     }
 
-    const std::vector<std::string>& measurement_labels() const override {
-        return labels;
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_matrices_same_size(ref_, targets_);
     }
 
-protected:
-    void prepare_impl(const std::filesystem::path& ref_path, const std::filesystem::path& def_path) override {
-        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
-        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(def_path);
+    void prepare_impl() override {
         auto result_matrix_size = ref_.matrix_size() + targets_.matrix_size() - 1;
         results_ = data_array<T, ALLOC>{result_matrix_size, targets_.num_matrices()};
 
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_targets_, targets_.size());
         cuda_malloc(&d_results_, results_.size());
+    }
 
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_targets_, targets_);
     }
 
     void run_impl() override {
-        CUDA_MEASURE(1,
+        CUDA_MEASURE(this->label_index(0),
             run_cross_corr_naive_original(
                 d_ref_,
                 d_targets_,
@@ -149,6 +149,10 @@ protected:
         cuda_memcpy_from_device(results_, d_results_);
     }
 
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
+    }
+
 private:
 
     static std::vector<std::string> labels;
@@ -165,7 +169,6 @@ private:
 
 template<typename T, bool DEBUG, typename ALLOC>
 std::vector<std::string> naive_original_alg_one_to_many<T, DEBUG, ALLOC>::labels{
-    "Total",
     "Kernel"
 };
 
@@ -190,21 +193,24 @@ public:
         return results_;
     }
 
-    const std::vector<std::string>& measurement_labels() const override {
-        return labels;
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_matrices_same_size(ref_, targets_);
     }
 
-protected:
-    void prepare_impl(const std::filesystem::path& ref_path, const std::filesystem::path& def_path) override {
-        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
-        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(def_path);
+    void prepare_impl() override {
         auto result_matrix_size = ref_.matrix_size() + targets_.matrix_size() - 1;
         results_ = data_array<T, ALLOC>{result_matrix_size, targets_.num_matrices()};
 
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_targets_, targets_.size());
         cuda_malloc(&d_results_, results_.size());
+    }
 
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_targets_, targets_);
     }
@@ -214,7 +220,7 @@ protected:
         // TODO: Number of blocks argument
         auto num_blocks = 0;
 
-        CUDA_MEASURE(1,
+        CUDA_MEASURE(this->label_index(0),
             run_ccn_def_per_block(
                 d_ref_,
                 d_targets_,
@@ -234,6 +240,11 @@ protected:
     void finalize_impl() override {
         cuda_memcpy_from_device(results_, d_results_);
     }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
+    }
+
 private:
 
     static std::vector<std::string> labels;
@@ -253,7 +264,6 @@ private:
 
 template<typename T, bool DEBUG, typename ALLOC>
 std::vector<std::string> naive_def_per_block<T, DEBUG, ALLOC>::labels{
-    "Total",
     "Kernel"
 };
 
@@ -278,25 +288,15 @@ public:
         return results_;
     }
 
-    const std::vector<std::string>& measurement_labels() const override {
-        return labels;
-    }
-
 protected:
-    void prepare_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
-
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
         ref_ = load_matrix_from_csv<T, relative_zero_padding<2>, ALLOC>(ref_path);
         targets_ = load_matrix_array_from_csv<T, relative_zero_padding<2>, ALLOC>(target_path);
 
-        if (ref_.matrix_size() != targets_.matrix_size()) {
-            throw std::runtime_error(
-                "Invalid input matrix sizes, expected ref and target to be the same size: ref = "s +
-                to_string(ref_.matrix_size()) +
-                " target = "s +
-                to_string(targets_.matrix_size())
-            );
-        }
+        this->check_matrices_same_size(ref_, targets_);
+    }
 
+    void prepare_impl() override {
         // Input matrices are padded with zeroes to twice their size
         // so that we can just do FFT, hadamard and inverse and have the resutls
         results_ = data_array<T, ALLOC>{ref_.matrix_size(), targets_.num_matrices()};
@@ -311,9 +311,6 @@ protected:
 
         cuda_malloc(&d_inputs_fft_, num_inputs * fft_buffer_size_);
 
-        cuda_memcpy_to_device(d_inputs_, ref_);
-        cuda_memcpy_to_device(d_inputs_ + ref_.size(), targets_);
-
         int input_sizes[2] = {static_cast<int>(ref_.matrix_size().y), static_cast<int>(ref_.matrix_size().x)};
         // With nullptr inembed and onembed, the values for istride, idist, ostride and odist are ignored
         FFTCH(cufftPlanMany(&fft_plan_, 2, input_sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_R2C<T>(), num_inputs));
@@ -322,12 +319,17 @@ protected:
         FFTCH(cufftPlanMany(&fft_inv_plan_, 2, result_sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_C2R<T>(), results_.num_matrices()));
     }
 
+    void transfer_impl() override {
+        cuda_memcpy_to_device(d_inputs_, ref_);
+        cuda_memcpy_to_device(d_inputs_ + ref_.size(), targets_);
+    }
+
     void run_impl() override {
-        CPU_MEASURE(1,
+        CPU_MEASURE(this->label_index(0),
             fft_real_to_complex(fft_plan_, d_inputs_, d_inputs_fft_);
         );
 
-        CUDA_MEASURE(2,
+        CUDA_MEASURE(this->label_index(1),
             run_hadamard_original(
                 d_inputs_fft_,
                 d_inputs_fft_ + fft_buffer_size_,
@@ -338,7 +340,7 @@ protected:
                 256)
         );
 
-        CPU_MEASURE(3,
+        CPU_MEASURE(this->label_index(2),
             fft_complex_to_real(fft_inv_plan_, d_inputs_fft_ + fft_buffer_size_, d_results_)
         );
 
@@ -348,6 +350,10 @@ protected:
 
     void finalize_impl() override {
         cuda_memcpy_from_device(results_, d_results_);
+    }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
     }
 
 private:
@@ -373,7 +379,6 @@ private:
 
 template<typename T, bool DEBUG, typename ALLOC>
 std::vector<std::string> fft_original_alg_one_to_many<T, DEBUG, ALLOC>::labels{
-    "Total",
     "Forward FFT",
     "Hadamard",
     "Inverse FFT"

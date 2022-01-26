@@ -41,10 +41,11 @@ class Run:
 
     @classmethod
     def from_dict(cls, idx: int, data) -> "Run":
+        algorithm = data["algorithm"]
         return cls(
             idx,
-            data["name"] if "name" in data else str(idx),
-            data["algorithm"],
+            data["name"] if "name" in data else f"{idx}_{algorithm}",
+            algorithm,
             data["args"] if "args" in data else {}
         )
 
@@ -63,7 +64,8 @@ class Run:
             result_stats_path: Path,
             out_data_dir: Path,
             keep_outputs: bool,
-            validation_data_path: Optional[Path]
+            validation_data_path: Optional[Path],
+            verbose: bool
     ):
         for iteration in range(iterations):
             print(f"Iteration {iteration}", end="\r")
@@ -78,6 +80,7 @@ class Run:
                 result_stats_path,
                 iteration != 0,
                 validation_data_path,
+                verbose
             )
 
 
@@ -218,7 +221,7 @@ class Group:
         shutil.rmtree(self.output_data_dir, ignore_errors=True)
 
     def log_step(self, step: int, num_steps: int, message: str) -> int:
-        print(f"[{self.name}][{step}/{num_steps}] {message}")
+        print(f"[{step}/{num_steps}] {message}")
         return step + 1
 
 
@@ -226,7 +229,8 @@ class Group:
             self,
             exe: executable.Executable,
             valid: validator.Validator,
-            prevent_override: bool
+            prevent_override: bool,
+            verbose: bool
     ):
         self.result_dir.mkdir(exist_ok=not prevent_override, parents=True)
         self.cleanup()
@@ -279,7 +283,8 @@ class Group:
                     measurement_output_stats_path,
                     out_data_dir,
                     self.keep,
-                    validation_data_path
+                    validation_data_path,
+                    verbose
                 )
 
                 last_msg = f"Measured times: {str(measurement_results_path.absolute())}"
@@ -301,8 +306,10 @@ def run_bechmarks(
         exe: executable.Executable,
         valid: validator.Validator,
         benchmark_def_file: Path,
+        group_filter: List[str],
         prevent_overwrite: bool,
-        out_dir_path: Optional[Path]
+        out_dir_path: Optional[Path],
+        verbose: bool
 ):
 
     definition = parse_benchmark_config(benchmark_def_file)
@@ -315,12 +322,17 @@ def run_bechmarks(
 
     global_config = GlobalConfig.from_dict(benchmark.get("config", None), out_dir_path)
     groups = [Group.from_dict(group_data, global_config, group_idx, exe) for group_idx, group_data in enumerate(benchmark["groups"])]
+
+    if len(group_filter) != 0:
+        groups = [group for group in groups if group.name in group_filter]
+
     for group_idx, group in enumerate(groups):
         print(f"-- [{group_idx + 1}/{len(groups)}] Running group {group.name} --")
         group.run(
             exe,
             valid,
-            prevent_overwrite
+            prevent_overwrite,
+            verbose
         )
 
 
@@ -329,8 +341,10 @@ def _run_benchmarks(args: argparse.Namespace):
         executable.Executable(args.executable_path),
         validator.Validator(args.validator_path),
         args.benchmark_definition_path,
+        args.groups,
         not args.no_overwrite_check,
-        args.output_path
+        args.output_path,
+        args.verbose
     )
 
 
@@ -350,9 +364,17 @@ def benchmark_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--no_overwrite_check",
                         action="store_true",
                         help="Disable check which prevents overwrite of the output directory")
+    parser.add_argument("-v", "--verbose",
+                       action="store_true",
+                       help="Increase verbosity of the commandline output")
     parser.add_argument("benchmark_definition_path",
                         type=Path,
                         help="Path to the benchmark definition YAML file")
+    parser.add_argument("groups",
+                        type=str,
+                        nargs="*",
+                        help="Groups to run, all by default"
+    )
     parser.set_defaults(action=_run_benchmarks)
 
 

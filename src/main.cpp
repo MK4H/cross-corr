@@ -51,13 +51,17 @@ using data_type = float;
 template<typename DATATYPE>
 void validate(
     const std::filesystem::path& target_path,
-    const std::filesystem::path& valid_path
+    const std::filesystem::path& valid_path,
+    bool normalize
 ){
     std::ifstream target_file(target_path);
     std::ifstream valid_file(valid_path);
     auto target = data_array<DATATYPE>::template load_from_csv<no_padding>(target_file);
     auto valid = data_array<DATATYPE>::template load_from_csv<no_padding>(valid_file);
 
+    if (normalize) {
+        target = normalize_fft_results(target);
+    }
     std::cout << validate_result(valid, target);
 }
 
@@ -83,7 +87,7 @@ template<typename ALG>
 void run_measurement(
     const std::optional<std::filesystem::path>& args_path,
     const std::filesystem::path& ref_path,
-    const std::filesystem::path& def_path,
+    const std::filesystem::path& target_path,
     const std::filesystem::path& out_path,
     const std::filesystem::path& measurements_path,
     const po::variable_value& validate,
@@ -100,7 +104,13 @@ void run_measurement(
 
     ALG alg{args};
     logger.log("Loading inputs");
-    alg.prepare(ref_path, def_path);
+    alg.load(ref_path, target_path);
+
+    logger.log("Allocating");
+    alg.prepare();
+
+    logger.log("Transfering data");
+    alg.transfer();
 
     logger.log("Running test alg");
     alg.run();
@@ -194,13 +204,14 @@ static std::unordered_map<std::string, std::function<void(
     {"nai_rows", run_measurement<naive_ring_buffer_row_alg<data_type, false, pinned_allocator<data_type>>>},
     {"nai_def_block", run_measurement<naive_def_per_block<data_type, false, pinned_allocator<data_type>>>},
     {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<data_type, false, pinned_allocator<data_type>>>},
+    {"fft_reduced_transfer_one_to_one", run_measurement<fft_reduced_transfer_one_to_one<data_type, false, pinned_allocator<data_type>>>},
     {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<data_type, false, pinned_allocator<data_type>>>},
     {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<data_type, false, pinned_allocator<data_type>>>},
     {"fft_better_n_to_m", run_measurement<fft_better_hadamard_alg_n_to_m<data_type, false, pinned_allocator<data_type>>>}
 };
 
 void print_help(std::ostream& out, const std::string& name, const po::options_description& options) {
-    out << "Usage: " << name << " [global options] command [run options] <alg> <ref_path> <target_path>\n";
+    out << "Usage: " << name << " [global options] command [command options]\n";
     out << "Commands: \n";
     out << "\t" << name << " [global options] list\n";
     out << "\t" << name << " [global options] run [run options] <alg> <ref_path> <target_path>\n";
@@ -211,7 +222,6 @@ void print_help(std::ostream& out, const std::string& name, const po::options_de
 
 int main(int argc, char **argv) {
     try {
-
         // TODO: Add handling of -- to separate options from positional arguments as program options doesn't do this by itself
         po::options_description global_opts{"Global options"};
         global_opts.add_options()
@@ -227,6 +237,9 @@ int main(int argc, char **argv) {
 
 
         po::options_description val_opts{"Validate options"};
+        val_opts.add_options()
+            ("normalize,n", po::bool_switch()->default_value(false), "Normalize the data to be validated as they are denormalized fft output")
+        ;
 
         po::options_description val_pos_opts;
         val_pos_opts.add_options()
@@ -362,10 +375,11 @@ int main(int argc, char **argv) {
             );
             po::notify(vm);
 
+            auto normalize = vm["normalize"].as<bool>();
             auto validate_data = vm["validate_data_path"].as<std::filesystem::path>();
             auto template_data = vm["template_data_path"].as<std::filesystem::path>();
 
-            validate<double>(validate_data, template_data);
+            validate<double>(validate_data, template_data, normalize);
         } else if (cmd == "list") {
             auto algs = get_sorted_keys(algorithms);
             for (auto&& alg: algs) {

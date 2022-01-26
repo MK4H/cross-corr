@@ -1,5 +1,9 @@
 # Cross-correlation measurements
 
+## TODOs
+- read the CUDA event times only during finalize, so that we prevent hidden synchronization
+    during the run of the algorihtm
+
 ## Profiling
 
 When profiling on localhost, you will need to either configure X server so that the NVidia device is run in non-interactive mode,
