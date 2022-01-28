@@ -26,6 +26,7 @@ def main():
     benchmark.benchmark_arguments(subparsers.add_parser("benchmark", help="Run benchmarks"))
     benchmark.list_algs_arguments(subparsers.add_parser("list", help="List algorithms"))
     input_generator.generator_arguments(subparsers.add_parser("generate", help="Generate input"))
+    input_generator.transformer_arguments(subparsers.add_parser("transform", help="Transform input data arrays"))
 
     validation_parser = subparsers.add_parser("validation", help="Validate outputs and generate data for validation")
     validation.add_subparsers(validation_parser)

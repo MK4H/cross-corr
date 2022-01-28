@@ -420,7 +420,7 @@ protected:
         // 2 * as we have two input matrices we are doing FFT on
         cuda_malloc(&d_padded_inputs_fft_, 2 * fft_buffer_size_);
 
-        int sizes[2] = {static_cast<int>(ref_.matrix_size().y), static_cast<int>(ref_.matrix_size().x)};
+        int sizes[2] = {static_cast<int>(padded_matrix_size_.y), static_cast<int>(padded_matrix_size_.x)};
         // With nullptr inembed and onembed, the values for istride, idist, ostride and odist are ignored
         FFTCH(cufftPlanMany(&fft_plan_, 2, sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_R2C<T>(), 2));
         FFTCH(cufftPlan2d(&fft_inv_plan_, result_.matrix_size().y, result_.matrix_size().x, fft_type_C2R<T>()));
@@ -470,7 +470,7 @@ protected:
             run_hadamard_original(
                 d_padded_inputs_fft_,
                 d_padded_inputs_fft_ + fft_buffer_size_,
-                {ref_.matrix_size().y, (ref_.matrix_size().x / 2) + 1},
+                {padded_matrix_size_.y, (padded_matrix_size_.x / 2) + 1},
                 1,
                 1,
                 256)

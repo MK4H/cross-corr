@@ -46,7 +46,6 @@ namespace std::filesystem {
 using namespace cross;
 
 namespace po = boost::program_options;
-using data_type = float;
 
 template<typename DATATYPE>
 void validate(
@@ -62,7 +61,7 @@ void validate(
     if (normalize) {
         target = normalize_fft_results(target);
     }
-    std::cout << validate_result(valid, target);
+    std::cout << validate_result(target, valid);
 }
 
 template<typename DURATION>
@@ -162,10 +161,10 @@ int validate_input_size(
         dsize_t,
         dsize_t
     )>> input_size_validation{
-        {"one_to_one", one_to_one<data_type>::validate_input_size},
-        {"one_to_many", one_to_many<data_type>::validate_input_size},
-        {"n_to_mn", n_to_mn<data_type>::validate_input_size},
-        {"n_to_m", n_to_m<data_type>::validate_input_size}
+        {"one_to_one", one_to_one<double>::validate_input_size},
+        {"one_to_many", one_to_many<double>::validate_input_size},
+        {"n_to_mn", n_to_mn<double>::validate_input_size},
+        {"n_to_m", n_to_m<double>::validate_input_size}
     };
 
     auto validator = input_size_validation.find(alg_type);
@@ -183,32 +182,54 @@ int validate_input_size(
 }
 
 
+template<typename DATA_TYPE>
 static std::unordered_map<std::string, std::function<void(
-    const std::optional<std::filesystem::path>&,
-    const std::filesystem::path&,
-    const std::filesystem::path&,
-    const std::filesystem::path&,
-    const std::filesystem::path&,
+    const std::optional<std::filesystem::path>& args_path,
+    const std::filesystem::path& ref_path,
+    const std::filesystem::path& target_path,
+    const std::filesystem::path& out_path,
+    const std::filesystem::path& measurements_path,
     const po::variable_value& validate,
-    bool,
-    bool,
-    bool
+    bool normalize,
+    bool append_measurements,
+    bool print_progress
 )>> algorithms{
-    {"cpu_one_to_one", run_measurement<cpu_one_to_one<data_type, false>>},
-    {"cpu_one_to_many", run_measurement<cpu_one_to_many<data_type, false>>},
-    {"cpu_n_to_mn", run_measurement<cpu_n_to_mn<data_type, false>>},
-    {"cpu_n_to_m", run_measurement<cpu_n_to_m<data_type, false>>},
-    {"nai_orig_one_to_one", run_measurement<naive_original_alg_one_to_one<data_type, false, pinned_allocator<data_type>>>},
-    {"nai_orig_one_to_many", run_measurement<naive_original_alg_one_to_many<data_type, false, pinned_allocator<data_type>>>},
-    {"nai_orig_n_to_mn", run_measurement<naive_original_alg_n_to_mn<data_type, false, pinned_allocator<data_type>>>},
-    {"nai_rows", run_measurement<naive_ring_buffer_row_alg<data_type, false, pinned_allocator<data_type>>>},
-    {"nai_def_block", run_measurement<naive_def_per_block<data_type, false, pinned_allocator<data_type>>>},
-    {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<data_type, false, pinned_allocator<data_type>>>},
-    {"fft_reduced_transfer_one_to_one", run_measurement<fft_reduced_transfer_one_to_one<data_type, false, pinned_allocator<data_type>>>},
-    {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<data_type, false, pinned_allocator<data_type>>>},
-    {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<data_type, false, pinned_allocator<data_type>>>},
-    {"fft_better_n_to_m", run_measurement<fft_better_hadamard_alg_n_to_m<data_type, false, pinned_allocator<data_type>>>}
+    {"cpu_one_to_one", run_measurement<cpu_one_to_one<DATA_TYPE, false>>},
+    {"cpu_one_to_many", run_measurement<cpu_one_to_many<DATA_TYPE, false>>},
+    {"cpu_n_to_mn", run_measurement<cpu_n_to_mn<DATA_TYPE, false>>},
+    {"cpu_n_to_m", run_measurement<cpu_n_to_m<DATA_TYPE, false>>},
+    {"nai_orig_one_to_one", run_measurement<naive_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"nai_orig_one_to_many", run_measurement<naive_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"nai_orig_n_to_mn", run_measurement<naive_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"nai_rows", run_measurement<naive_ring_buffer_row_alg<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"nai_def_block", run_measurement<naive_def_per_block<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"fft_reduced_transfer_one_to_one", run_measurement<fft_reduced_transfer_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"fft_better_n_to_m", run_measurement<fft_better_hadamard_alg_n_to_m<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>}
 };
+
+template<typename DATA_TYPE>
+void run(
+    const std::string& alg_name,
+    const std::optional<std::filesystem::path>& args_path,
+    const std::filesystem::path& ref_path,
+    const std::filesystem::path& target_path,
+    const std::filesystem::path& out_path,
+    const std::filesystem::path& measurements_path,
+    const po::variable_value& validate,
+    bool normalize,
+    bool append_measurements,
+    bool print_progress
+) {
+
+    auto fnc = algorithms<DATA_TYPE>.find(alg_name);
+    if (fnc == algorithms<DATA_TYPE>.end()) {
+        throw std::runtime_error("Invalid algorithm specified \n"s + alg_name + "\"");
+    }
+    fnc->second(args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append_measurements, print_progress);
+}
 
 void print_help(std::ostream& out, const std::string& name, const po::options_description& options) {
     out << "Usage: " << name << " [global options] command [command options]\n";
@@ -257,18 +278,19 @@ int main(int argc, char **argv) {
 
         po::options_description run_opts{"Run options"};
         run_opts.add_options()
-            ("out,o", po::value<std::filesystem::path>()->default_value("output.csv"))
-            ("times,t", po::value<std::filesystem::path>()->default_value("measurements.csv"))
-            ("validate,v", po::value<std::filesystem::path>()->implicit_value(""))
+            ("data_type,d", po::value<std::string>()->default_value("single"), "Data type to use for computation")
+            ("out,o", po::value<std::filesystem::path>()->default_value("output.csv"), "Path of the output file to be created")
+            ("times,t", po::value<std::filesystem::path>()->default_value("measurements.csv"), "File to store the measured times in")
+            ("validate,v", po::value<std::filesystem::path>()->implicit_value(""), "If validation of the results should be done and optionally path to a file containing the valid results")
             ("normalize,n", po::bool_switch()->default_value(false), "If algorithm is fft, normalize the results")
             ("append,a", po::bool_switch()->default_value(false), "Append time measurements without the header if the times file already exists instead of overwriting it")
             ("no_progress,p", po::bool_switch()->default_value(false), "Do not print human readable progress, instead any messages to stdout will be formated for machine processing")
-            ("args_path", po::value<std::filesystem::path>())
+            ("args_path", po::value<std::filesystem::path>(), "Path to the JSON file containing arguments for the algorithm")
             ;
 
         po::options_description run_pos_opts;
         run_pos_opts.add_options()
-            ("alg", po::value<std::string>()->required())
+            ("alg", po::value<std::string>()->required(), "Name of the algorithm to use")
             ("ref_path", po::value<std::filesystem::path>()->required(), "path to the reference data")
             ("target_path", po::value<std::filesystem::path>()->required(), "path to the target data")
             ;
@@ -344,13 +366,8 @@ int main(int argc, char **argv) {
             );
             po::notify(vm);
 
-            auto fnc = algorithms.find(vm["alg"].as<std::string>());
-            if (fnc == algorithms.end()) {
-                std::cerr << "Unknown algorithm \"" << vm["alg"].as<std::string>() << "\", expected one of " << get_sorted_keys(algorithms) << std::endl;
-                print_help(std::cerr, argv[0], all_options);
-                return 1;
-            }
-
+            auto alg_name = vm["alg"].as<std::string>();
+            auto data_type = vm["data_type"].as<std::string>();
             auto args_path = vm.count("args_path") ? std::optional<std::filesystem::path>{vm["args_path"].as<std::filesystem::path>()} : std::nullopt;
             auto ref_path = vm["ref_path"].as<std::filesystem::path>();
             auto target_path = vm["target_path"].as<std::filesystem::path>();
@@ -361,7 +378,25 @@ int main(int argc, char **argv) {
             auto append = vm["append"].as<bool>();
             auto progress = !vm["no_progress"].as<bool>();
             auto validate = vm["validate"];
-            fnc->second(args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
+
+
+            // TODO: Change if there can be different algorithms for float and double
+            if (algorithms<float>.find(alg_name) == algorithms<float>.end()) {
+                std::cerr << "Unknown algorithm \"" << alg_name << "\", expected one of " << get_sorted_keys(algorithms<float>) << std::endl;
+                print_help(std::cerr, argv[0], all_options);
+                return 1;
+            }
+
+            if (data_type == "single") {
+                run<float>(alg_name, args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
+            } else if (data_type == "double") {
+                run<double> (alg_name, args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
+            } else {
+                std::cerr << "Unknown data type " << data_type << "\n";
+                print_help(std::cerr, argv[0], all_options);
+                return 1;
+            }
+
         } else if (cmd == "validate") {
             std::vector<std::string> opts = po::collect_unrecognized(parsed.options, po::include_positional);
             opts.erase(opts.begin());
@@ -381,7 +416,7 @@ int main(int argc, char **argv) {
 
             validate<double>(validate_data, template_data, normalize);
         } else if (cmd == "list") {
-            auto algs = get_sorted_keys(algorithms);
+            auto algs = get_sorted_keys(algorithms<float>);
             for (auto&& alg: algs) {
                 std::cout << alg << "\n";
             }
