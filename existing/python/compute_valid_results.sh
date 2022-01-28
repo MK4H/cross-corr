@@ -11,9 +11,11 @@ then
     exit 1
 fi
 
-
+IN1="$(realpath -e "$3")"
+IN2="$(realpath -e "$4")"
+OUT="$(realpath "$5")"
 WORK_DIR="${PWD}"
 
 cd "${DIR}"
 
-poetry run bash -c "cd ${WORK_DIR} && python3 \"${DIR}/crosscorr.py\" -o \"$5\" -d \"$2\" \"$1\" \"$3\" \"$4\""
+poetry run bash -c "cd ${WORK_DIR} && python3 \"${DIR}/crosscorr.py\" -o \"${OUT}\" -d \"$2\" \"$1\" \"${IN1}\" \"${IN2}\""

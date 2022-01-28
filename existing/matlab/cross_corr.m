@@ -35,7 +35,7 @@ try
 
         g_in1 = gpuArray(in1_data);
         result_matrix_size = in1_matrix_size + in2_matrix_size - 1;
-        result_matrix = zeros(result_matrix_size(1) * in2_num_matrices, result_matrix_size(2));
+        result_matrix = zeros(result_matrix_size(1) * in2_num_matrices, result_matrix_size(2), data_type);
         for t = 1:in2_num_matrices
             % TODO: Upload all data to GPU at once
             g_in2 = gpuArray(in2_data(1 + (t-1)*in2_matrix_size(1):t*in2_matrix_size(1),:));
@@ -49,7 +49,7 @@ try
         g_in2 = gpuArray(in2_data);
 
         result_matrix_size = in1_matrix_size + in2_matrix_size - 1;
-        result_matrix = zeros(result_matrix_size(1) * in1_num_matrices * in2_num_matrices, result_matrix_size(2));
+        result_matrix = zeros(result_matrix_size(1) * in1_num_matrices * in2_num_matrices, result_matrix_size(2), data_type);
         for r = 1:in1_num_matrices
             g_in1_mat = g_in1(1 + (r - 1)*in1_matrix_size(1):r*in1_matrix_size(1),:);
             for t = 1:in2_num_matrices
@@ -73,7 +73,7 @@ try
         g_in1 = gpuArray(in1_data);
         g_in2 = gpuArray(in2_data);
         result_matrix_size = in1_matrix_size + in2_matrix_size - 1;
-        result_matrix = zeros(result_matrix_size(1) * in2_num_matrices, result_matrix_size(2));
+        result_matrix = zeros(result_matrix_size(1) * in2_num_matrices, result_matrix_size(2), data_type);
         for r = 1:in1_num_matrices
             g_in1_mat = g_in1(1 + (r - 1)*in1_matrix_size(1):r*in1_matrix_size(1),:);
             for t = 1:in2_num_matrices / in1_num_matrices
