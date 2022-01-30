@@ -28,6 +28,9 @@ target_link_libraries(cross PUBLIC ${Boost_LIBRARIES})
 target_link_libraries(cross PUBLIC ${CUDA_CUFFT_LIBRARIES})
 target_link_libraries(cross PRIVATE nlohmann_json::nlohmann_json)
 
+target_compile_options(cross PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic>)
+target_compile_options(cross PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--compiler-options=-Wall,-Wextra>)
+
 #target_compile_options(cross PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_70,code=[compute_70,sm_70,sm_75,sm_80]>)
 target_compile_options(cross PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_70,code=[compute_70,sm_70,sm_75,sm_80] -lineinfo>)
 #target_compile_options(cross PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-gencode arch=compute_70,code=[compute_70,sm_70,sm_75,sm_80] -G -Xcompiler -rdynamic>)

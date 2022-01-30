@@ -45,6 +45,20 @@ static const char* cufft_get_error_message(cufftResult error)
 
     case CUFFT_UNALIGNED_DATA:
         return "CUFFT_UNALIGNED_DATA";
+    case CUFFT_INCOMPLETE_PARAMETER_LIST:
+        return "CUFFT_INCOMPLETE_PARAMETER_LIST";
+    case CUFFT_INVALID_DEVICE:
+        return "CUFFT_INVALID_DEVICE";
+    case CUFFT_PARSE_ERROR:
+        return "CUFFT_PARSE_ERROR";
+    case CUFFT_NO_WORKSPACE:
+        return "CUFFT_NO_WORKSPACE";
+    case CUFFT_NOT_IMPLEMENTED:
+        return "CUFFT_NOT_IMPLEMENTED";
+    case CUFFT_LICENSE_ERROR:
+        return "CUFFT_LICENSE_ERROR";
+    case CUFFT_NOT_SUPPORTED:
+        return "CUFFT_NOT_SUPPORTED";
     }
 
     return "<unknown>";
@@ -238,7 +252,7 @@ void normalize_fft_results(const MAT_IN& res, MAT_OUT &&norm) {
 template<typename T, typename ALLOC>
 data_array<T> normalize_fft_results(const data_array<T, ALLOC>& res) {
     data_array<T> norm{res.matrix_size() - 1, res.num_matrices()};
-    for (auto i = 0; i < norm.num_matrices(); ++i) {
+    for (dsize_t i = 0; i < norm.num_matrices(); ++i) {
         // TOOD: In parallel
         normalize_fft_results(res.view(i), norm.view(i));
     }

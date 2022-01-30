@@ -37,7 +37,7 @@ protected:
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class cpu_n_to_m: public n_to_m<T, ALLOC> {
 public:
-    cpu_n_to_m(const json& args)
+    cpu_n_to_m([[maybe_unused]] const json& args)
         :n_to_m<T, ALLOC>(false, labels.size()), refs_(), targets_(), results_()
     {
 
@@ -91,7 +91,7 @@ std::vector<std::string> cpu_n_to_m<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_better_hadamard_alg_n_to_m: public n_to_m<T, ALLOC> {
 public:
-    fft_better_hadamard_alg_n_to_m(const json& args)
+    fft_better_hadamard_alg_n_to_m([[maybe_unused]] const json& args)
         :n_to_m<T, ALLOC>(true, labels.size()), refs_(), targets_(), results_(), fft_buffer_size_(0)
     {
 

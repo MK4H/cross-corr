@@ -231,7 +231,7 @@ void cpu_cross_corr_one_to_many(const REF& ref, const TARGET& target, RESULT& re
     check_matrix_size(ref.matrix_size(), target.matrix_size(), result.matrix_size());
     check_num_result_matrices(result.num_matrices(), target.num_matrices());
 
-    for (auto i = 0; i < target.num_matrices(); ++i) {
+    for (dsize_t i = 0; i < target.num_matrices(); ++i) {
         // TODO: Do in parallel
         naive_cpu_cross_corr(ref.view(), target.view(i), result.view(i));
     }
@@ -259,8 +259,8 @@ void cpu_cross_corr_n_to_mn(const REF& ref, const TARGET& target, RESULT& result
     }
 
     // TODO: Do in parallel
-    for (auto r = 0; r < ref.num_matrices(); ++r) {
-        for (auto t = 0; t < target.num_matrices() / ref.num_matrices() ; ++t) {
+    for (dsize_t r = 0; r < ref.num_matrices(); ++r) {
+        for (dsize_t t = 0; t < target.num_matrices() / ref.num_matrices() ; ++t) {
             auto t_matrix_index = t * ref.num_matrices() + r;
             naive_cpu_cross_corr(ref.view(r), target.view(t_matrix_index), result.view(t_matrix_index));
         }
@@ -280,8 +280,8 @@ void cpu_cross_corr_n_to_m(const REF& ref, const TARGET& target, RESULT& result)
     check_num_result_matrices(result.num_matrices(), ref.num_matrices() * target.num_matrices());
 
     // TODO: Do in parallel
-    for (auto r = 0; r < ref.num_matrices(); ++r) {
-        for (auto t = 0; t < target.num_matrices(); ++t) {
+    for (dsize_t r = 0; r < ref.num_matrices(); ++r) {
+        for (dsize_t t = 0; t < target.num_matrices(); ++t) {
             auto result_matrix_index = r * target.num_matrices() + t;
             naive_cpu_cross_corr(ref.view(r), target.view(t), result.view(result_matrix_index));
         }

@@ -35,7 +35,7 @@ protected:
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class cpu_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    cpu_one_to_one(const json& args)
+    cpu_one_to_one([[maybe_unused]] const json& args)
         :one_to_one<T, ALLOC>(false, labels.size()), ref_(), target_(), result_()
     {
 
@@ -88,7 +88,7 @@ std::vector<std::string> cpu_one_to_one<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_original_alg_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    naive_original_alg_one_to_one(const json& args)
+    naive_original_alg_one_to_one([[maybe_unused]] const json& args)
         :one_to_one<T, ALLOC>(false, labels.size()), ref_(), target_(), result_()
     {
 
@@ -176,7 +176,7 @@ std::vector<std::string> naive_original_alg_one_to_one<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_ring_buffer_row_alg: public one_to_one<T, ALLOC> {
 public:
-    naive_ring_buffer_row_alg(const json& args)
+    naive_ring_buffer_row_alg([[maybe_unused]] const json& args)
         :one_to_one<T, ALLOC> (false, labels.size()), ref_(), target_(), res_(), threads_per_block(0)
     {
         threads_per_block = args["threads_per_block"].get<dsize_t>();
@@ -265,7 +265,7 @@ std::vector<std::string> naive_ring_buffer_row_alg<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_original_alg_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    fft_original_alg_one_to_one(const json& args)
+    fft_original_alg_one_to_one([[maybe_unused]] const json& args)
         :one_to_one<T, ALLOC>(true, labels.size()), ref_(), target_(), result_(), fft_buffer_size_(0)
     {
 
@@ -379,7 +379,7 @@ std::vector<std::string> fft_original_alg_one_to_one<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_reduced_transfer_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    fft_reduced_transfer_one_to_one(const json& args)
+    fft_reduced_transfer_one_to_one([[maybe_unused]] const json& args)
         :one_to_one<T, ALLOC>(true, labels.size()), ref_(), target_(), result_(), fft_buffer_size_(0)
     {
 

@@ -25,7 +25,7 @@
 namespace std::filesystem {
     template <class CharT>
     void validate(boost::any& v, std::vector<std::basic_string<CharT>> const& s,
-                  std::filesystem::path* p, int)
+                  [[maybe_unused]] std::filesystem::path* p, int)
     {
         assert(s.size() == 1);
         std::basic_stringstream<CharT> ss;
@@ -83,7 +83,7 @@ void output_measurements(
 }
 
 template<typename ALG>
-void run_measurement(
+int run_measurement(
     const std::optional<std::filesystem::path>& args_path,
     const std::filesystem::path& ref_path,
     const std::filesystem::path& target_path,
@@ -102,20 +102,47 @@ void run_measurement(
     }
 
     ALG alg{args};
-    logger.log("Loading inputs");
-    alg.load(ref_path, target_path);
 
-    logger.log("Allocating");
-    alg.prepare();
+    try {
+        logger.log("Loading inputs");
+        alg.load(ref_path, target_path);
+    } catch (std::exception& e) {
+        std::cerr << "Exception occured durign data loading step: " << e.what() << std::endl;
+        return 3;
+    }
 
-    logger.log("Transfering data");
-    alg.transfer();
+    try {
+        logger.log("Allocating");
+        alg.prepare();
+    } catch (std::exception& e) {
+        std::cerr << "Exception occured durign allocation step: " << e.what() << std::endl;
+        return 3;
+    }
 
-    logger.log("Running test alg");
-    alg.run();
+    try {
+        logger.log("Transfering data");
+        alg.transfer();
+    } catch (std::exception& e) {
+        std::cerr << "Exception occured durign data transfer step: " << e.what() << std::endl;
+        return 3;
+    }
 
-    logger.log("Copying output data to host");
-    alg.finalize();
+    try {
+        logger.log("Running test alg");
+        alg.run();
+    } catch (std::exception& e) {
+        std::cerr << "Exception occured durign computation step: " << e.what() << std::endl;
+        return 3;
+    }
+
+    try {
+        logger.log("Copying output data to host");
+        alg.finalize();
+    } catch (std::exception& e) {
+        std::cerr << "Exception occured durign finalization step: " << e.what() << std::endl;
+        return 3;
+    }
+
 
     auto res = alg.results();
     std::ofstream out_file(out_path);
@@ -146,6 +173,7 @@ void run_measurement(
         logger.log("Computing valid results and validating");
         logger.result_stats(alg.validate());
     }
+    return 0;
 }
 
 int validate_input_size(
@@ -183,7 +211,7 @@ int validate_input_size(
 
 
 template<typename DATA_TYPE>
-static std::unordered_map<std::string, std::function<void(
+static std::unordered_map<std::string, std::function<int(
     const std::optional<std::filesystem::path>& args_path,
     const std::filesystem::path& ref_path,
     const std::filesystem::path& target_path,
@@ -211,7 +239,7 @@ static std::unordered_map<std::string, std::function<void(
 };
 
 template<typename DATA_TYPE>
-void run(
+int run(
     const std::string& alg_name,
     const std::optional<std::filesystem::path>& args_path,
     const std::filesystem::path& ref_path,
@@ -228,7 +256,7 @@ void run(
     if (fnc == algorithms<DATA_TYPE>.end()) {
         throw std::runtime_error("Invalid algorithm specified \n"s + alg_name + "\"");
     }
-    fnc->second(args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append_measurements, print_progress);
+    return fnc->second(args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append_measurements, print_progress);
 }
 
 void print_help(std::ostream& out, const std::string& name, const po::options_description& options) {
@@ -388,9 +416,9 @@ int main(int argc, char **argv) {
             }
 
             if (data_type == "single") {
-                run<float>(alg_name, args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
+                return run<float>(alg_name, args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
             } else if (data_type == "double") {
-                run<double> (alg_name, args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
+                return run<double> (alg_name, args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
             } else {
                 std::cerr << "Unknown data type " << data_type << "\n";
                 print_help(std::cerr, argv[0], all_options);
