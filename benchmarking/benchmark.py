@@ -59,6 +59,7 @@ class Run:
             args_path: Path,
             left_input: Path,
             right_input: Path,
+            data_type: str,
             iterations: int,
             result_times_path: Path,
             result_stats_path: Path,
@@ -72,6 +73,7 @@ class Run:
             out_data_path = out_data_dir / (f"{iteration}.csv" if keep_outputs else "out.csv")
             exe.run_benchmark(
                 self.algorithm,
+                data_type,
                 args_path,
                 left_input,
                 right_input,
@@ -89,12 +91,14 @@ class GlobalConfig:
             self,
             output_path: Path,
             sizes: Optional[input_size.InputSize],
+            data_type: Optional[str],
             iterations: Optional[int],
             validate: Optional[bool],
             keep: Optional[bool],
     ):
         self.output_path = output_path
         self.sizes = sizes
+        self.data_type = data_type
         self.iterations = iterations
         self.validate = validate
         self.keep = keep
@@ -106,12 +110,13 @@ class GlobalConfig:
     @classmethod
     def from_dict(cls, data, output_path: Path) -> "GlobalConfig":
         if data is None:
-            return cls(output_path, None, None, None, None)
+            return cls(output_path, None, None, None, None, None)
 
         return cls(
             output_path,
             [input_size.InputSize.from_dict_or_string(in_size) for in_size in
              data["sizes"]] if "sizes" in data else None,
+            data["data_type"] if "data_type" in data else None,
             int(data["iterations"]) if "iterations" in data else None,
             bool(data["validate"]) if "validate" in data else None,
             bool(data["keep"]) if "keep" in data else None
@@ -125,6 +130,7 @@ class Group:
             runs: List[Run],
             alg_type: str,
             sizes: List[input_size.InputSize],
+            data_type: str,
             result_dir: Path,
             data_dir: Path,
             iterations: int,
@@ -135,6 +141,7 @@ class Group:
         self.runs = runs
         self.alg_type = alg_type
         self.sizes = sizes
+        self.data_type = data_type
         self.result_dir = result_dir
         self.input_data_dir = data_dir / "inputs"
         self.output_data_dir = data_dir / "outputs"
@@ -146,22 +153,24 @@ class Group:
     def _config_from_dict(
             data,
             global_config: GlobalConfig
-    ) -> Tuple[Optional[List[input_size.InputSize]], Optional[int], Optional[bool], Optional[bool]]:
+    ) -> Tuple[Optional[List[input_size.InputSize]], Optional[str], Optional[int], Optional[bool], Optional[bool]]:
         if data is None:
-            return global_config.sizes, global_config.iterations, global_config.validate, global_config.keep
+            return global_config.sizes, global_config.data_type, global_config.iterations, global_config.validate, global_config.keep
         sizes = [input_size.InputSize.from_dict_or_string(in_size) for in_size in data["sizes"]] if "sizes" in data else global_config.sizes
+        data_type = data["data_type"] if "data_type" in data else "single"
         iterations = int(data["iterations"]) if "iterations" in data else global_config.iterations
         validate = bool(data["validate"]) if "validate" in data else global_config.validate
         keep = bool(data["keep"]) if "keep" in data else global_config.keep
 
-        return sizes, iterations, validate, keep
+        return sizes, data_type, iterations, validate, keep
 
     @classmethod
     def from_dict(cls, data, global_config: GlobalConfig, index: int, exe: executable.Executable,):
         name = str(data['name']) if "name" in data else str(index)
-        sizes, iterations, validate, keep = cls._config_from_dict(data.get("config", None), global_config)
+        sizes, data_type, iterations, validate, keep = cls._config_from_dict(data.get("config", None), global_config)
 
         assert sizes is not None, "Missing list of sizes"
+        assert data_type is not None, "Missing data type"
         assert iterations is not None, "Missing number of iterations"
         validate = validate if validate is not None else False
         keep = keep if keep is not None else False
@@ -197,7 +206,7 @@ class Group:
                 )
                 sys.exit(1)
 
-        return cls(name, runs, alg_type, sizes, group_dir, group_data_dir, iterations, validate, keep)
+        return cls(name, runs, alg_type, sizes, data_type, group_dir, group_data_dir, iterations, validate, keep)
 
     def generate_inputs(
             self,
@@ -254,6 +263,7 @@ class Group:
                 validation_data_path = self.input_data_dir / f"{input_idx}_valid_{in_size.rows}_{in_size.columns}_{in_size.left_matrices}_{in_size.right_matrices}.csv"
                 valid.generate_validation_data(
                     self.alg_type,
+                    self.data_type,
                     left_path,
                     right_path,
                     validation_data_path
@@ -278,6 +288,7 @@ class Group:
                     args_path,
                     left_path,
                     right_path,
+                    self.data_type,
                     self.iterations,
                     measurement_results_path,
                     measurement_output_stats_path,

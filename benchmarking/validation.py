@@ -14,6 +14,7 @@ def validate_from_inputs(
         val: validator.Validator,
         exe: executable.Executable,
         alg_type: str,
+        data_type: str,
         left_input: Path,
         right_input: Path,
         data_path: Path,
@@ -22,6 +23,7 @@ def validate_from_inputs(
         tmp_path = Path(tmp_dir) / "valid_data.csv"
         val.generate_validation_data(
             alg_type,
+            data_type,
             left_input,
             right_input,
             tmp_path
@@ -33,12 +35,14 @@ def validate_from_inputs(
 def generate_valid_output(
         val: validator.Validator,
         alg_type: str,
+        data_type: str,
         left_input: Path,
         right_input: Path,
         output: Path
 ):
     val.generate_validation_data(
         alg_type,
+        data_type,
         left_input,
         right_input,
         output
@@ -76,6 +80,7 @@ def _validate_from_inputs(args: argparse.Namespace):
         validator.Validator(args.validator_path),
         executable.Executable(args.executable_path),
         args.alg_type,
+        args.data_type,
         args.left_input_path,
         args.right_input_path,
         args.data_path,
@@ -86,6 +91,7 @@ def _generate_valid_output(args: argparse.Namespace):
     generate_valid_output(
         validator.Validator(args.validator_path),
         args.alg_type,
+        args.data_type,
         args.left_input_path,
         args.right_input_path,
         args.output_path,
@@ -99,6 +105,7 @@ def _validate_from_pregenerated(args: argparse.Namespace):
         args.valid_data_path,
     )
 
+
 def _validate_result_stats(args: argparse.Namespace):
     validate_result_stats(
         args.limit,
@@ -107,8 +114,11 @@ def _validate_result_stats(args: argparse.Namespace):
     )
 
 
-
 def validate_from_inputs_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument("-d", "--data_type",
+                        choices=["single", "double"],
+                        default="single",
+                        help="Data type to use for calculations")
     parser.add_argument("alg_type",
                         type=str,
                         help="Type of the algorithm to generate valid data for")
@@ -123,12 +133,17 @@ def validate_from_inputs_arguments(parser: argparse.ArgumentParser):
                         help="Path to the data to be validated")
     parser.set_defaults(action=_validate_from_inputs)
 
+
 def generate_valid_output_arguments(parser: argparse.ArgumentParser):
     default_output_path = Path.cwd() / "valid_data.csv"
     parser.add_argument("-o", "--output_path",
                         default=default_output_path,
                         type=Path,
                         help=f"Output directory path (defaults to {str(default_output_path)})")
+    parser.add_argument("-d", "--data_type",
+                        choices=["single", "double"],
+                        default="single",
+                        help="Data type to use for calculations")
     parser.add_argument("alg_type",
                         type=str,
                         help="Type of the algorithm to generate valid data for")
@@ -165,6 +180,7 @@ def validate_stats_arguments(parser: argparse.ArgumentParser):
                         type=Path,
                         help="Result statistic files to validate")
     parser.set_defaults(action=_validate_result_stats)
+
 
 def global_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-e", "--executable_path",

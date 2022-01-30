@@ -80,6 +80,7 @@ class Executable:
     def run_benchmark(
         self,
         alg: str,
+        data_type: str,
         args_path: Path,
         left_input_path: Path,
         right_input_path: Path,
@@ -97,7 +98,8 @@ class Executable:
             "--out", str(output_data_path.absolute()),
             "--times", str(timings_path.absolute()),
             "--no_progress",
-            "--args_path", str(args_path.absolute())
+            "--args_path", str(args_path.absolute()),
+            "--data_type", str(data_type),
         ]
 
         positional_args = [

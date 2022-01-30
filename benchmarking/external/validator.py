@@ -13,6 +13,7 @@ class Validator:
     def generate_validation_data(
             self,
             alg_type: str,
+            data_type: str,
             left_path: Path,
             right_path: Path,
             out_path: Path,
@@ -21,8 +22,7 @@ class Validator:
             [
                 str(self.validator_path.absolute()),
                 alg_type,
-                # TODO: Add as commandline argument
-                "single",
+                data_type,
                 str(left_path.absolute()),
                 str(right_path.absolute()),
                 str(out_path.absolute())
