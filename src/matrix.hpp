@@ -24,7 +24,7 @@ public:
     }
 
     template<typename IT>
-    static void pad_row(IT begin, IT end) {
+    static void pad_row([[maybe_unused]] IT begin,[[maybe_unused]] IT end) {
         return;
     }
 };
@@ -100,7 +100,7 @@ namespace impl {
                 throw std::runtime_error{"Invalid file header format"};
             }
 
-            boost::tokenizer<boost::escaped_list_separator<char>> tok(line.substr(2));
+            boost::tokenizer<boost::escaped_list_separator<char>> tok(std::string_view(line).substr(2));
             auto it = tok.begin();
             if (it == tok.end()) {
                 throw std::runtime_error{"Missing matrix header"};
