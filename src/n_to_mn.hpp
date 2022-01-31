@@ -208,7 +208,7 @@ public:
     fft_original_alg_n_to_mn([[maybe_unused]] const json& args)
         :n_to_mn<T, ALLOC>(true, labels.size()), refs_(), targets_(), results_(), fft_buffer_size_(0)
     {
-
+        hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -221,6 +221,12 @@ public:
 
     const data_array<T, ALLOC>& results() const override {
         return results_;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_))
+        };
     }
 
 protected:
@@ -271,8 +277,7 @@ protected:
                 {refs_.matrix_size().y, (refs_.matrix_size().x / 2) + 1},
                 refs_.num_matrices(),
                 targets_.num_matrices() / refs_.num_matrices(),
-                // TODO: Number of threads
-                256)
+                hadamard_threads_per_block_)
         );
 
         CPU_MEASURE(this->label_index(2),
@@ -309,6 +314,8 @@ private:
     dsize_t fft_buffer_size_;
 
     fft_complex_t* d_inputs_fft_;
+
+    dsize_t hadamard_threads_per_block_;
 };
 
 template<typename T, bool DEBUG, typename ALLOC>
@@ -317,5 +324,165 @@ std::vector<std::string> fft_original_alg_n_to_mn<T, DEBUG, ALLOC>::labels{
     "Hadamard",
     "Inverse FFT"
 };
+
+
+template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
+class fft_reduced_transfer_n_to_mn: public n_to_mn<T, ALLOC> {
+public:
+    fft_reduced_transfer_n_to_mn([[maybe_unused]] const json& args)
+        :n_to_mn<T, ALLOC>(true, labels.size()), refs_(), targets_(), results_(), fft_buffer_size_(0)
+    {
+        scatter_threads_per_block_  = args.value("scatter_threads_per_block", 256);
+        scatter_items_per_thread_ = args.value("scatter_items_per_thread", 10);
+        hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return refs_;
+    }
+
+    const data_array<T, ALLOC>& targets() const override {
+        return targets_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return results_;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("scatter_threads_per_block", std::to_string(scatter_threads_per_block_)),
+            std::make_pair("scatter_items_per_thread", std::to_string(scatter_items_per_thread_)),
+            std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_))
+        };
+    }
+
+protected:
+
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        refs_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_input_sizes_divisible(refs_.num_matrices(), targets_.num_matrices());
+        this->check_matrices_same_size(refs_, targets_);
+    }
+
+    void prepare_impl() override {
+        padded_matrix_size_ = 2 * refs_.matrix_size();
+        fft_buffer_size_ = padded_matrix_size_.y * (padded_matrix_size_.x / 2 + 1);
+        // 1 for the ref matrix
+        num_inputs_ = refs_.num_matrices() + targets_.num_matrices();
+
+        // Input matrices are NOT padded
+        results_ = data_array<T, ALLOC>{padded_matrix_size_, targets_.num_matrices()};
+
+
+        cuda_malloc(&d_inputs_, refs_.size() + targets_.size());
+        cuda_malloc(&d_padded_inputs_, num_inputs_ * padded_matrix_size_.area());
+        cuda_malloc(&d_results_, results_.size());
+
+        cuda_malloc(&d_padded_inputs_fft_, num_inputs_ * fft_buffer_size_);
+
+        int sizes[2] = {static_cast<int>(padded_matrix_size_.y), static_cast<int>(padded_matrix_size_.x)};
+        // With nullptr inembed and onembed, the values for istride, idist, ostride and odist are ignored
+        FFTCH(cufftPlanMany(&fft_plan_, 2, sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_R2C<T>(), num_inputs_));
+
+        FFTCH(cufftPlanMany(&fft_inv_plan_, 2, sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_C2R<T>(), results_.num_matrices()));
+    }
+
+    void transfer_impl() override {
+        CPU_MEASURE(this->label_index(3),
+            cuda_memcpy_to_device(d_inputs_, refs_);
+            cuda_memcpy_to_device(d_inputs_ + refs_.size(), targets_);
+        );
+
+        cuda_memset(d_padded_inputs_, 0, num_inputs_ * padded_matrix_size_.area());
+
+        CUDA_MEASURE(this->label_index(4),
+            run_scatter(
+                d_inputs_,
+                d_padded_inputs_,
+                refs_.matrix_size(),
+                num_inputs_,
+                padded_matrix_size_,
+                dsize2_t{0,0},
+                scatter_threads_per_block_,
+                scatter_items_per_thread_
+            );
+        );
+
+        CUCH(cudaDeviceSynchronize());
+        CUCH(cudaGetLastError());
+    }
+
+    void run_impl() override {
+        CPU_MEASURE(this->label_index(0),
+            fft_real_to_complex(fft_plan_, d_padded_inputs_, d_padded_inputs_fft_);
+        );
+
+        CUDA_MEASURE(this->label_index(1),
+            run_hadamard_original(
+                d_padded_inputs_fft_,
+                d_padded_inputs_fft_ + fft_buffer_size_ * refs_.num_matrices(),
+                {padded_matrix_size_.y, (padded_matrix_size_.x / 2) + 1},
+                refs_.num_matrices(),
+                targets_.num_matrices() / refs_.num_matrices(),
+                hadamard_threads_per_block_)
+        );
+
+        CPU_MEASURE(this->label_index(2),
+            fft_complex_to_real(fft_inv_plan_, d_padded_inputs_fft_ + fft_buffer_size_ * refs_.num_matrices(), d_results_)
+        );
+
+        CUCH(cudaDeviceSynchronize());
+        CUCH(cudaGetLastError());
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(results_, d_results_);
+    }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
+    }
+
+private:
+    using fft_real_t = typename real_trait<T>::type;
+    using fft_complex_t = typename complex_trait<T>::type;
+
+    static std::vector<std::string> labels;
+
+    data_array<T, ALLOC> refs_;
+    data_array<T, ALLOC> targets_;
+    data_array<T, ALLOC> results_;
+
+    T* d_inputs_;
+    T* d_padded_inputs_;
+    T* d_results_;
+
+    cufftHandle fft_plan_;
+    cufftHandle fft_inv_plan_;
+
+    dsize_t num_inputs_;
+    dsize2_t padded_matrix_size_;
+    dsize_t fft_buffer_size_;
+
+    fft_complex_t* d_padded_inputs_fft_;
+
+    dsize_t scatter_threads_per_block_;
+    dsize_t scatter_items_per_thread_;
+    dsize_t hadamard_threads_per_block_;
+
+};
+
+template<typename T, bool DEBUG, typename ALLOC>
+std::vector<std::string> fft_reduced_transfer_n_to_mn<T, DEBUG, ALLOC>::labels{
+    "Forward FFT",
+    "Hadamard",
+    "Inverse FFT",
+    "ToDevice",
+    "Scatter"
+};
+
 
 }

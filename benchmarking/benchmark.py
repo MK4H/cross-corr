@@ -1,4 +1,5 @@
 import argparse
+import itertools
 import re
 import shutil
 import sys
@@ -40,14 +41,43 @@ class Run:
         raise ValueError(f"Invalid algorithm name {algorithm}")
 
     @classmethod
-    def from_dict(cls, idx: int, data) -> "Run":
+    def from_dict(cls, idx: int, data) -> List["Run"]:
         algorithm = data["algorithm"]
-        return cls(
-            idx,
-            data["name"] if "name" in data else f"{idx}_{algorithm}",
-            algorithm,
-            data["args"] if "args" in data else {}
-        )
+        base_name = data["name"] if "name" in data else f"{idx}_{algorithm}"
+        args = data["args"] if "args" in data else {}
+
+        generate = {}
+        singles = {}
+        for key, value in args.items():
+            if type(value) is list and len(value) > 1:
+                generate[key] = value
+            elif type(value) is list and len(value) == 1:
+                singles[key] = value[0]
+            else:
+                singles[key] = value
+
+        if len(generate) == 0:
+            return [cls(
+                idx,
+                base_name,
+                algorithm,
+                singles,
+            )]
+
+        # Generate all combinations of values from each generate key
+        keys, values = zip(*generate.items())
+        combinations = itertools.product(*values)
+        runs = []
+        for combination in combinations:
+            name_suffix = "_".join(str(val) for val in combination)
+            run_args = {**singles, **dict(zip(keys, combination))}
+            runs.append(cls(
+                idx,
+                f"{base_name}_{name_suffix}",
+                algorithm,
+                run_args
+            ))
+        return runs
 
     def create_args_file(self, path: Path):
         with path.open("w") as f:
@@ -183,9 +213,10 @@ class Group:
         group_data_dir = global_config.data_path / unique_name
 
         try:
-            runs = [Run.from_dict(run_idx, run) for run_idx, run in enumerate(data["runs"])]
+            # Load warps of runs and flatten them into a list of runs
+            runs = list(itertools.chain.from_iterable([Run.from_dict(run_idx, run) for run_idx, run in enumerate(data["runs"])]))
         except ValueError as e:
-            print(e)
+            print(f"Failed to load runs: {e}", file=sys.stderr)
             sys.exit(1)
         assert len(runs) != 0, "No runs given"
 
@@ -214,9 +245,9 @@ class Group:
             size: input_size.InputSize,
     ) -> Tuple[Path, Path]:
         left_path = self.input_data_dir / (
-            f"{index}_left_{size.rows}_{size.columns}_{size.left_matrices}.csv" if self.keep else "left.csv")
+            f"{index}-left-{size}.csv" if self.keep else "left.csv")
         right_path = self.input_data_dir / (
-            f"{index}_right_{size.rows}_{size.columns}_{size.right_matrices}.csv" if self.keep else "right.csv")
+            f"{index}-right-{size}.csv" if self.keep else "right.csv")
 
         input_generator.generate_matrices(size.left_matrices, size.rows, size.columns,
                                           input_generator.OutputFormats.CSV, left_path)
@@ -248,7 +279,7 @@ class Group:
         self.output_data_dir.mkdir(parents=True)
 
         for run in self.runs:
-            args_path = self.input_data_dir / f"{run.idx}_{run.name}_args.json"
+            args_path = self.input_data_dir / f"{run.idx}-{run.name}-args.json"
             run.create_args_file(args_path)
 
         num_steps = len(self.sizes) * len(self.runs) + len(self.sizes) + (len(self.sizes) if self.validate else 0)
@@ -260,7 +291,7 @@ class Group:
 
             if self.validate:
                 step = self.log_step(step, num_steps, f"Generating validation data")
-                validation_data_path = self.input_data_dir / f"{input_idx}_valid_{in_size.rows}_{in_size.columns}_{in_size.left_matrices}_{in_size.right_matrices}.csv"
+                validation_data_path = self.input_data_dir / f"{input_idx}-valid-{in_size}.csv"
                 valid.generate_validation_data(
                     self.alg_type,
                     self.data_type,
@@ -274,14 +305,14 @@ class Group:
             for run in self.runs:
                 step = self.log_step(step, num_steps, f"Benchmarking {run.name} for {in_size}")
 
-                args_path = self.input_data_dir / f"{run.idx}_{run.name}_args.json"
+                args_path = self.input_data_dir / f"{run.idx}-{run.name}-args.json"
 
-                measurement_suffix = f"{input_idx}_{run.idx}_{run.name}_{in_size}"
+                measurement_suffix = f"{run.idx}-{input_idx}-{run.name}-{in_size}"
                 out_data_dir = self.output_data_dir / f"{measurement_suffix}"
                 out_data_dir.mkdir(parents=True)
 
-                measurement_results_path = self.result_dir / f"{measurement_suffix}_time.csv"
-                measurement_output_stats_path = self.result_dir / f"{measurement_suffix}_output_stats.csv"
+                measurement_results_path = self.result_dir / f"{measurement_suffix}-time.csv"
+                measurement_output_stats_path = self.result_dir / f"{measurement_suffix}-output_stats.csv"
 
                 run.run(
                     exe,

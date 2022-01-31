@@ -127,6 +127,10 @@ public:
     const std::vector<sw_clock::duration> measurements() const {
         return sw_.results();
     }
+
+    virtual const std::vector<std::pair<std::string, std::string>> additional_properties() const {
+        return std::vector<std::pair<std::string, std::string>>{};
+    }
 protected:
 
     bool is_fft_;

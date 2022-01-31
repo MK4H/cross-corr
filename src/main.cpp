@@ -69,6 +69,7 @@ void output_measurements(
     const std::filesystem::path& measurements_path,
     const std::vector<std::string>& labels,
     const std::vector<DURATION>& measurements,
+    const std::vector<std::pair<std::string, std::string>>& additional_properties,
     bool append
 ) {
     std::ofstream measurements_file;
@@ -77,9 +78,23 @@ void output_measurements(
     } else {
         measurements_file.open(measurements_path);
         to_csv(measurements_file, labels);
+        if (additional_properties.size() != 0) {
+            if (labels.size() != 0) {
+                measurements_file << ",";
+            }
+            to_csv(measurements_file, get_labels(additional_properties));
+        }
+        measurements_file << "\n";
     }
 
     to_csv<std::chrono::nanoseconds>(measurements_file, measurements);
+    if (additional_properties.size() != 0) {
+        if (measurements.size() != 0) {
+            measurements_file << ",";
+        }
+        to_csv(measurements_file, get_values(additional_properties));
+    }
+    measurements_file << "\n";
 }
 
 template<typename ALG>
@@ -159,6 +174,7 @@ int run_measurement(
         measurements_path,
         alg.measurement_labels(),
         alg.measurements(),
+        alg.additional_properties(),
         append_measurements
     );
 
@@ -234,7 +250,9 @@ static std::unordered_map<std::string, std::function<int(
     {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
     {"fft_reduced_transfer_one_to_one", run_measurement<fft_reduced_transfer_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
     {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"fft_reduced_transfer_one_to_many", run_measurement<fft_reduced_transfer_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
     {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"fft_reduced_transfer_n_to_mn", run_measurement<fft_reduced_transfer_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
     {"fft_better_n_to_m", run_measurement<fft_better_hadamard_alg_n_to_m<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>}
 };
 

@@ -112,13 +112,15 @@ void run_ccn_def_per_block(
     dsize2_t matrix_size,
     dsize2_t search_size,
     dsize_t num_def_mats,
-    dsize_t total_num_blocks,
+    dsize_t items_per_block,
     dsize_t threads_per_block
 ) {
 
     dsize_t shared_mem_size = 2 * matrix_size.area() * sizeof(T);
 
-    ccn_def_per_block<<<total_num_blocks, threads_per_block, shared_mem_size>>>(
+    dsize_t num_blocks = div_up(num_def_mats, items_per_block);
+
+    ccn_def_per_block<<<num_blocks, threads_per_block, shared_mem_size>>>(
         ref_mat,
         def_mats,
         out_mats,

@@ -176,10 +176,10 @@ template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_def_per_block: public one_to_many<T, ALLOC> {
 public:
     naive_def_per_block([[maybe_unused]] const json& args)
-        :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_(), num_blocks_(), threads_per_block_()
+        :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_(), items_per_block_(), threads_per_block_()
     {
-        num_blocks_ = args["num_blocks"].get<dsize_t>();
-        threads_per_block_ = args["threads_per_block"].get<dsize_t>();
+        items_per_block_ = args.value("items_per_block", 10);
+        threads_per_block_ = args.value("threads_per_block", 256);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -191,6 +191,13 @@ public:
 
     const data_array<T, ALLOC>& results() const override {
         return results_;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("items_per_block", std::to_string(items_per_block_)),
+            std::make_pair("threads_per_block", std::to_string(threads_per_block_))
+        };
     }
 
 protected:
@@ -216,10 +223,6 @@ protected:
     }
 
     void run_impl() override {
-
-        // TODO: Number of blocks argument
-        auto num_blocks = 0;
-
         CUDA_MEASURE(this->label_index(0),
             run_ccn_def_per_block(
                 d_ref_,
@@ -228,7 +231,7 @@ protected:
                 ref_.matrix_size(),
                 results_.matrix_size(),
                 targets_.num_matrices(),
-                num_blocks,
+                items_per_block_,
                 threads_per_block_
             )
         );
@@ -258,7 +261,7 @@ private:
     T* d_targets_;
     T* d_results_;
 
-    dsize_t num_blocks_;
+    dsize_t items_per_block_;
     dsize_t threads_per_block_;
 };
 
@@ -273,7 +276,7 @@ public:
     fft_original_alg_one_to_many([[maybe_unused]] const json& args)
         :one_to_many<T, ALLOC>(true, labels.size()), ref_(), targets_(), results_(), fft_buffer_size_(0)
     {
-
+        hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -286,6 +289,12 @@ public:
 
     const data_array<T, ALLOC>& results() const override {
         return results_;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_))
+        };
     }
 
 protected:
@@ -336,8 +345,7 @@ protected:
                 {ref_.matrix_size().y, (ref_.matrix_size().x / 2) + 1},
                 1,
                 targets_.num_matrices(),
-                // TODO: Number of threads
-                256)
+                hadamard_threads_per_block_)
         );
 
         CPU_MEASURE(this->label_index(2),
@@ -375,6 +383,8 @@ private:
     dsize_t fft_buffer_size_;
 
     fft_complex_t* d_inputs_fft_;
+
+    dsize_t hadamard_threads_per_block_;
 };
 
 template<typename T, bool DEBUG, typename ALLOC>
@@ -390,7 +400,9 @@ public:
     fft_reduced_transfer_one_to_many([[maybe_unused]] const json& args)
         :one_to_many<T, ALLOC>(true, labels.size()), ref_(), targets_(), results_(), fft_buffer_size_(0)
     {
-
+        scatter_threads_per_block_  = args.value("scatter_threads_per_block", 256);
+        scatter_items_per_thread_ = args.value("scatter_items_per_thread", 10);
+        hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -403,6 +415,14 @@ public:
 
     const data_array<T, ALLOC>& results() const override {
         return results_;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("scatter_threads_per_block", std::to_string(scatter_threads_per_block_)),
+            std::make_pair("scatter_items_per_thread", std::to_string(scatter_items_per_thread_)),
+            std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_))
+        };
     }
 
 protected:
@@ -421,7 +441,7 @@ protected:
         num_inputs_ = 1 + targets_.num_matrices();
 
         // Input matrices are NOT padded
-        results_ = data_array<T, ALLOC>{padded_matrix_size_};
+        results_ = data_array<T, ALLOC>{padded_matrix_size_, targets_.num_matrices()};
 
 
         cuda_malloc(&d_inputs_, ref_.size() + targets_.size());
@@ -433,7 +453,6 @@ protected:
         int sizes[2] = {static_cast<int>(padded_matrix_size_.y), static_cast<int>(padded_matrix_size_.x)};
         // With nullptr inembed and onembed, the values for istride, idist, ostride and odist are ignored
         FFTCH(cufftPlanMany(&fft_plan_, 2, sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_R2C<T>(), num_inputs_));
-
 
         FFTCH(cufftPlanMany(&fft_inv_plan_, 2, sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_C2R<T>(), results_.num_matrices()));
     }
@@ -454,9 +473,8 @@ protected:
                 num_inputs_,
                 padded_matrix_size_,
                 dsize2_t{0,0},
-                // TODO: Args
-                256,
-                10
+                scatter_threads_per_block_,
+                scatter_items_per_thread_
             );
         );
 
@@ -485,8 +503,7 @@ protected:
                 {padded_matrix_size_.y, (padded_matrix_size_.x / 2) + 1},
                 1,
                 targets_.num_matrices(),
-                // TODO: Arg
-                256)
+                hadamard_threads_per_block_)
         );
 
         CPU_MEASURE(this->label_index(2),
@@ -527,6 +544,11 @@ private:
     dsize_t fft_buffer_size_;
 
     fft_complex_t* d_padded_inputs_fft_;
+
+    dsize_t scatter_threads_per_block_;
+    dsize_t scatter_items_per_thread_;
+    dsize_t hadamard_threads_per_block_;
+
 };
 
 template<typename T, bool DEBUG, typename ALLOC>

@@ -4,6 +4,7 @@
 #include <string>
 
 #include "validate.hpp"
+#include "csv.hpp"
 
 /**
  * Toggleable ostream which serves as a decorator for another ostream.
@@ -29,7 +30,10 @@ public:
         if (print_progress_) {
             std::cout << results;
         } else {
-            to_csv(std::cout, results, !append_result_stats_);
+            if (!append_result_stats_) {
+                std::cout << results.csv_header() << "\n";
+            }
+            std::cout << results.csv_data() << "\n";
         }
     }
 private:

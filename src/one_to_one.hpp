@@ -176,10 +176,10 @@ std::vector<std::string> naive_original_alg_one_to_one<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_ring_buffer_row_alg: public one_to_one<T, ALLOC> {
 public:
-    naive_ring_buffer_row_alg([[maybe_unused]] const json& args)
-        :one_to_one<T, ALLOC> (false, labels.size()), ref_(), target_(), res_(), threads_per_block(0)
+    naive_ring_buffer_row_alg(const json& args)
+        :one_to_one<T, ALLOC> (false, labels.size()), ref_(), target_(), res_()
     {
-        threads_per_block = args["threads_per_block"].get<dsize_t>();
+        threads_per_block_ = args.value("threads_per_block", 256);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -192,6 +192,12 @@ public:
 
     const data_array<T, ALLOC>& results() const override {
         return res_;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("threads_per_block", std::to_string(threads_per_block_))
+        };
     }
 
 protected:
@@ -223,8 +229,7 @@ protected:
                 d_res_,
                 target_.matrix_size(),
                 res_.matrix_size(),
-                // TODO: Read from args
-                threads_per_block
+                threads_per_block_
             )
         );
 
@@ -253,7 +258,7 @@ private:
     T* d_target_;
     T* d_res_;
 
-    dsize_t threads_per_block;
+    dsize_t threads_per_block_;
 };
 
 template<typename T, bool DEBUG, typename ALLOC>
@@ -265,10 +270,10 @@ std::vector<std::string> naive_ring_buffer_row_alg<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_original_alg_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    fft_original_alg_one_to_one([[maybe_unused]] const json& args)
+    fft_original_alg_one_to_one(const json& args)
         :one_to_one<T, ALLOC>(true, labels.size()), ref_(), target_(), result_(), fft_buffer_size_(0)
     {
-
+        hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -281,6 +286,12 @@ public:
 
     const data_array<T, ALLOC>& results() const override {
         return result_;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_))
+        };
     }
 
 protected:
@@ -328,7 +339,7 @@ protected:
                 {ref_.matrix_size().y, (ref_.matrix_size().x / 2) + 1},
                 1,
                 1,
-                256)
+                hadamard_threads_per_block_)
         );
 
         CPU_MEASURE(this->label_index(2),
@@ -366,6 +377,8 @@ private:
     dsize_t fft_buffer_size_;
 
     fft_complex_t* d_inputs_fft_;
+
+    dsize_t hadamard_threads_per_block_;
 };
 
 template<typename T, bool DEBUG, typename ALLOC>
@@ -379,10 +392,12 @@ std::vector<std::string> fft_original_alg_one_to_one<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_reduced_transfer_one_to_one: public one_to_one<T, ALLOC> {
 public:
-    fft_reduced_transfer_one_to_one([[maybe_unused]] const json& args)
+    fft_reduced_transfer_one_to_one(const json& args)
         :one_to_one<T, ALLOC>(true, labels.size()), ref_(), target_(), result_(), fft_buffer_size_(0)
     {
-
+        scatter_threads_per_block_  = args.value("scatter_threads_per_block", 256);
+        scatter_items_per_thread_ = args.value("scatter_items_per_thread", 10);
+        hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -395,6 +410,14 @@ public:
 
     const data_array<T, ALLOC>& results() const override {
         return result_;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("scatter_threads_per_block", std::to_string(scatter_threads_per_block_)),
+            std::make_pair("scatter_items_per_thread", std::to_string(scatter_items_per_thread_)),
+            std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_))
+        };
     }
 
 protected:
@@ -442,9 +465,8 @@ protected:
                 ref_.num_matrices() + target_.num_matrices(),
                 padded_matrix_size_,
                 dsize2_t{0,0},
-                // TODO: Args
-                256,
-                10
+                scatter_threads_per_block_,
+                scatter_items_per_thread_
             );
         );
 
@@ -473,7 +495,7 @@ protected:
                 {padded_matrix_size_.y, (padded_matrix_size_.x / 2) + 1},
                 1,
                 1,
-                256)
+                hadamard_threads_per_block_)
         );
 
         CPU_MEASURE(this->label_index(2),
@@ -513,6 +535,11 @@ private:
     dsize_t fft_buffer_size_;
 
     fft_complex_t* d_padded_inputs_fft_;
+
+    dsize_t scatter_threads_per_block_;
+    dsize_t scatter_items_per_thread_;
+    dsize_t hadamard_threads_per_block_;
+
 };
 
 template<typename T, bool DEBUG, typename ALLOC>

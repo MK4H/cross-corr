@@ -3,6 +3,7 @@
 #include <optional>
 #include <algorithm>
 #include <string>
+#include <sstream>
 #include <limits>
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
@@ -54,6 +55,17 @@ public:
     bool empty() const {
         return empty_;
     }
+
+    std::string csv_header() const {
+        return "Max,Mean,Stddev";
+    }
+
+    std::string csv_data() const {
+        std::stringstream ss;
+        ss << std::scientific << get_diff_max() << "," << get_diff_mean() << "," << get_diff_std_dev();
+        return ss.str();
+    }
+
 private:
     bool empty_;
     double diff_max_;
@@ -63,15 +75,6 @@ private:
     double max_valid_;
     double max_actual_;
 };
-
-
-void to_csv(std::ostream& out, const validation_results& res, bool with_header = false) {
-    if (with_header) {
-        out << "Max,Mean,Stddev" << "\n";
-    }
-    out << std::scientific << res.get_diff_max() << "," << res.get_diff_mean() << "," << res.get_diff_std_dev() << "\n";
-    out.unsetf(std::ios_base::scientific);
-}
 
 std::ostream& operator <<(std::ostream& out, const validation_results& res) {
     if (res.empty()) {

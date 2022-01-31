@@ -94,7 +94,8 @@ public:
     fft_better_hadamard_alg_n_to_m([[maybe_unused]] const json& args)
         :n_to_m<T, ALLOC>(true, labels.size()), refs_(), targets_(), results_(), fft_buffer_size_(0)
     {
-
+        hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
+        hadamard_items_per_thread_ = args.value("hadamard_items_per_thread", 10);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -107,6 +108,13 @@ public:
 
     const data_array<T, ALLOC>& results() const override {
         return results_;
+    }
+
+    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_)),
+            std::make_pair("hadamard_items_per_thread", std::to_string(hadamard_items_per_thread_))
+        };
     }
 
 protected:
@@ -158,10 +166,8 @@ protected:
                 {refs_.matrix_size().y, (refs_.matrix_size().x / 2) + 1},
                 refs_.num_matrices(),
                 targets_.num_matrices(),
-                // TODO: Number of threads
-                1024,
-                // TODO: Benchmark this
-                10)
+                hadamard_threads_per_block_,
+                hadamard_items_per_thread_)
         );
 
         CPU_MEASURE(this->label_index(2),
@@ -200,6 +206,9 @@ private:
 
     fft_complex_t* d_inputs_fft_;
     fft_complex_t* d_haddamard_results_;
+
+    dsize_t hadamard_threads_per_block_;
+    dsize_t hadamard_items_per_thread_;
 };
 
 template<typename T, bool DEBUG, typename ALLOC>
