@@ -73,7 +73,7 @@ class Run:
             run_args = {**singles, **dict(zip(keys, combination))}
             runs.append(cls(
                 idx,
-                f"{base_name}_{name_suffix}",
+                f"{base_name}__{name_suffix}__",
                 algorithm,
                 run_args
             ))
@@ -263,7 +263,6 @@ class Group:
     def log_step(self, step: int, num_steps: int, message: str) -> int:
         print(f"[{step}/{num_steps}] {message}")
         return step + 1
-
 
     def run(
             self,

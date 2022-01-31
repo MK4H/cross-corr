@@ -74,21 +74,49 @@ private:
     cudaEvent_t stop_;
 };
 
+class cuda_event_pair {
+public:
+    cuda_event_pair()
+        :start_(), stop_(), is_used_(false)
+    {
+        CUCH(cudaEventCreateWithFlags(&start_, cudaEventBlockingSync));
+        CUCH(cudaEventCreateWithFlags(&stop_, cudaEventBlockingSync));
+    }
+
+    ~cuda_event_pair() {
+        CUCH(cudaEventDestroy(stop_));
+        CUCH(cudaEventDestroy(start_));
+    }
+
+    cudaEvent_t get_start() const {
+        return start_;
+    }
+
+    cudaEvent_t get_stop() const {
+        return stop_;
+    }
+
+    void used() {
+        is_used_ = true;
+    }
+
+    bool is_used() const {
+        return is_used_;
+    }
+
+private:
+    cudaEvent_t start_;
+    cudaEvent_t stop_;
+    bool is_used_;
+};
+
 template<typename CLOCK>
 class stopwatch {
 public:
     stopwatch(std::size_t num_measurements)
-        :measurements_(num_measurements), events_(2*num_measurements)
+        :measurements_(num_measurements), events_(num_measurements)
     {
-        for (auto&& event: events_) {
-            CUCH(cudaEventCreateWithFlags(&event, cudaEventBlockingSync));
-        }
-    }
 
-    ~stopwatch() {
-        for (auto&& event: events_) {
-            CUCH(cudaEventDestroy(event));
-        }
     }
 
     typename CLOCK::time_point now() {
@@ -108,30 +136,46 @@ public:
     }
 
     cuda_measurement cuda_start(std::size_t label) {
-        return cuda_measurement{label, events_[2*label], events_[2*label + 1]};
+        events_[label].used();
+        return cuda_measurement{label, events_[label].get_start(), events_[label].get_stop()};
     }
 
     void cuda_measure(const cuda_measurement& measurement) {
-        cuda_measure(measurement.get_label(), measurement.get_start(), measurement.get_stop());
+        cuda_measure(measurement.get_label());
     }
 
-    void cuda_measure(std::size_t label, cudaEvent_t start, cudaEvent_t stop) {
-        CUCH(cudaEventSynchronize(stop));
-        float milliseconds = 0;
-        CUCH(cudaEventElapsedTime(&milliseconds, start, stop));
-        measurements_[label] = std::chrono::duration_cast<typename CLOCK::duration>(std::chrono::duration<double, std::milli>(milliseconds));
+    void cuda_measure([[maybe_unused]] std::size_t label) {
+        // Nothing for now
+        // The time is measured by the events and is collected by cuda_collect
+        // Based on which events are used
+    }
+
+    void cuda_collect() {
+        for (dsize_t i = 0; i < events_.size(); ++i) {
+            const cuda_event_pair& event = events_[i];
+            if (event.is_used()) {
+                CUCH(cudaEventSynchronize(event.get_stop()));
+                float milliseconds = 0;
+                CUCH(cudaEventElapsedTime(&milliseconds, event.get_start(), event.get_stop()));
+                measurements_[i] = std::chrono::duration_cast<typename CLOCK::duration>(std::chrono::duration<double, std::milli>(milliseconds));
+            }
+        }
     }
 
     void store_measurement(std::size_t label, typename CLOCK::duration measurement) {
         measurements_[label] = measurement;
     }
 
+    /**
+     * MUST call cuda_collect before retrieving results
+     * otherwise the cuda measurements will not be present
+     */
     const std::vector<typename CLOCK::duration> results() const {
         return measurements_;
     }
 private:
     std::vector<typename CLOCK::duration> measurements_;
-    std::vector<cudaEvent_t> events_;
+    std::vector<cuda_event_pair> events_;
 
 };
 

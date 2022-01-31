@@ -2,7 +2,7 @@ import re
 import pandas as pd
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 class InputSize:
     def __init__(self, rows: int, columns: int, left_matrices: int, right_matrices: int):
@@ -31,12 +31,13 @@ class InputSize:
 
 
 class Benchmark:
-    def __init__(self, name: str, input_size: InputSize, data: pd.DataFrame):
+    def __init__(self, name: str, args: Optional[str], input_size: InputSize, data: pd.DataFrame):
         self.name = name
+        self.args = args
         self.input_size = input_size
         self.data = data
 
-    benchmark_result_filename_regex = re.compile("^[0-9]+_[0-9]+_(.*)_([0-9]+_[0-9]+_[0-9]+_[0-9]+)_time.csv$")
+    benchmark_result_filename_regex = re.compile("^[0-9]+-[0-9]+-(.*)(__(.*)__)?-([0-9]+_[0-9]+_[0-9]+_[0-9]+)-time.csv$")
 
     @classmethod
     def load(cls, path: Path) -> "Benchmark":
@@ -44,7 +45,8 @@ class Benchmark:
         if match:
             return cls(
                 match.group(1),
-                InputSize.from_string(match.group(2)),
+                match.group(3),
+                InputSize.from_string(match.group(4)),
                 pd.read_csv(
                     path
                 )
@@ -53,5 +55,5 @@ class Benchmark:
             raise ValueError(f"Invalid file path {str(path)}")
 
 def load_group_results(group_dir_path: Path) -> List[Benchmark]:
-    benchmark_files = group_dir_path.glob("*_time.csv")
+    benchmark_files = group_dir_path.glob("*-time.csv")
     return [Benchmark.load(file) for file in benchmark_files]

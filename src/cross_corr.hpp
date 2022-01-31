@@ -89,6 +89,7 @@ public:
             finalize_impl();
         );
         sw_.cpu_measure(0, start_);
+        sw_.cuda_collect();
     }
 
     virtual const data_array<T, ALLOC>& refs() const = 0;
