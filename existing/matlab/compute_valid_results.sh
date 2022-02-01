@@ -15,4 +15,4 @@ IN1="$(realpath -e "$3")"
 IN2="$(realpath -e "$4")"
 OUT="$(realpath "$5")"
 
-matlab -nodisplay -nosplash -nodesktop -r "alg = '$1'; data_type = '$2'; in1_path = '${IN1}'; in2_path = '${IN2}'; out_path = '${OUT}'; run('${DIR}/cross_corr.m'); exit;"
+matlab -nodisplay -nosplash -nodesktop -batch "alg = '$1'; data_type = '$2'; in1_path = '${IN1}'; in2_path = '${IN2}'; out_path = '${OUT}'; run('${DIR}/compute_valid_results.m'); exit;"

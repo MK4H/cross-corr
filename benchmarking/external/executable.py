@@ -56,20 +56,27 @@ class Executable:
             print(f"Stderr: {res.stderr}", file=sys.stderr)
             sys.exit(2)
 
-    def validate_output(self, output: Path, valid_data: Path):
+    def validate_data(self, valid_data: Path, data_paths: List[Path], csv: bool = False, normalize: bool = False) -> str:
+        command = [
+            str(self.executable_path.absolute()),
+            "validate",
+        ]
+        if csv:
+            command.append("--csv")
+
+        if normalize:
+            command.append("--normalize")
+
+        command.append(str(valid_data.absolute()))
+        command.extend((str(path.absolute()) for path in data_paths))
         res = sp.run(
-            [
-                str(self.executable_path.absolute()),
-                "validate",
-                str(output.absolute()),
-                str(valid_data.absolute())
-            ],
+            command,
             capture_output=True,
             text=True
         )
 
         if res.returncode == 0:
-            print(res.stdout)
+            return res.stdout
         else:
             print("Failed to run output validation", file=sys.stderr)
             print(f"Exit code: {res.returncode}", file=sys.stderr)

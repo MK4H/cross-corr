@@ -17,19 +17,19 @@ def validate_from_inputs(
         data_type: str,
         left_input: Path,
         right_input: Path,
-        data_path: Path,
+        data_paths: List[Path],
 ):
     with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir) / "valid_data.csv"
+        valid_path = Path(tmp_dir) / "valid_data.csv"
         val.generate_validation_data(
             alg_type,
             data_type,
             left_input,
             right_input,
-            tmp_path
+            valid_path
         )
 
-        exe.validate_output(data_path, tmp_path)
+        print(exe.validate_data(valid_path, data_paths))
 
 
 def generate_valid_output(
@@ -51,10 +51,10 @@ def generate_valid_output(
 
 def validate_from_pregenerated(
     exe: executable.Executable,
-    data_path: Path,
     valid_data_path: Path,
+    data_paths: List[Path],
 ):
-    exe.validate_output(data_path, valid_data_path)
+    print(exe.validate_data(valid_data_path, data_paths))
 
 
 def validate_result_stats(
@@ -83,7 +83,7 @@ def _validate_from_inputs(args: argparse.Namespace):
         args.data_type,
         args.left_input_path,
         args.right_input_path,
-        args.data_path,
+        args.data_paths,
     )
 
 
@@ -101,8 +101,8 @@ def _generate_valid_output(args: argparse.Namespace):
 def _validate_from_pregenerated(args: argparse.Namespace):
     validate_from_pregenerated(
         executable.Executable(args.executable_path),
-        args.data_path,
         args.valid_data_path,
+        args.data_paths,
     )
 
 
@@ -128,9 +128,10 @@ def validate_from_inputs_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("right_input_path",
                         type=Path,
                         help="Path to the file containing right input data")
-    parser.add_argument("data_path",
+    parser.add_argument("data_paths",
+                        nargs="+",
                         type=Path,
-                        help="Path to the data to be validated")
+                        help="Paths to the data to be validated")
     parser.set_defaults(action=_validate_from_inputs)
 
 
@@ -157,12 +158,13 @@ def generate_valid_output_arguments(parser: argparse.ArgumentParser):
 
 
 def validate_from_pregenerated_arguments(parser: argparse.ArgumentParser):
-    parser.add_argument("data_path",
-                        type=Path,
-                        help="Path to the data to be validated")
     parser.add_argument("valid_data_path",
+                    type=Path,
+                    help="Path to the valid data to validate against")
+    parser.add_argument("data_paths",
+                        nargs="+",
                         type=Path,
-                        help="Path to the valid data to validate against")
+                        help="Paths to the data to be validated")
     parser.set_defaults(action=_validate_from_pregenerated)
 
 

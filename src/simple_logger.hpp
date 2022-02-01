@@ -26,11 +26,13 @@ public:
         }
     }
 
-    void result_stats(const validation_results& results) {
+    void result_stats(const validation_results& results, std::optional<bool> print_header_override = std::nullopt) {
         if (print_progress_) {
             std::cout << results;
         } else {
-            if (!append_result_stats_) {
+            if ((print_header_override.has_value() && *print_header_override) ||
+                !append_result_stats_
+            ) {
                 std::cout << results.csv_header() << "\n";
             }
             std::cout << results.csv_data() << "\n";

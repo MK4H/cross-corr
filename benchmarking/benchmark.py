@@ -4,32 +4,86 @@ import re
 import shutil
 import sys
 import json
-from ruamel.yaml import YAML
+
 
 import input_generator
 
 from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path
+from abc import ABC, abstractmethod
 
-from external import input_size, validator, executable
+from ruamel.yaml import YAML
+
+from external import input_size, validator, executable, benchmark_script
 
 DEFAULT_OUTPUT_PATH = Path.cwd() / "output"
 DEFAULT_ITERATIONS = 100
 
 
-class Run:
+class Run(ABC):
+    def __init__(
+        self,
+        idx: int,
+        name: str,
+        algorithm_type: str
+    ):
+        self.idx = idx
+        self.name = name
+        self.algorithm_type = algorithm_type
+
+    def prepare(self):
+        """
+        Prepare things which are independent of the input size
+        :return:
+        """
+        pass
+
+
+
+    @abstractmethod
+    def run(self,
+            left_input: Path,
+            right_input: Path,
+            data_type: str,
+            iterations: int,
+            result_times_path: Path,
+            result_stats_path: Path,
+            out_data_dir: Path,
+            keep_outputs: bool,
+            validation_data_path: Optional[Path],
+            verbose: bool
+            ):
+        pass
+
+    @classmethod
+    def from_dict(cls, idx: int, exe: executable.Executable, base_dir_path: Path, input_data_dir: Path, data) -> List["Run"]:
+        factory_methods = {
+            "internal": InternalRun.from_dict,
+            "external": ExternalRun.from_dict
+        }
+        if "type" not in data:
+            return factory_methods["internal"](idx, exe, base_dir_path, input_data_dir, data)
+        elif data["type"] in factory_methods:
+            return factory_methods[data["type"]](idx, exe, base_dir_path, input_data_dir, data)
+        else:
+            raise ValueError(f"Unknown run type {data['type']}")
+
+
+class InternalRun(Run):
     def __init__(
             self,
             idx: int,
             name: str,
+            exe: executable.Executable,
             algorithm: str,
             args: Dict[Any, Any],
+            args_file_path: Path,
     ):
-        self.idx = idx
-        self.name = name
+        super().__init__(idx, name, InternalRun.get_algorithm_type(algorithm))
+        self.exe = exe
         self.algorithm = algorithm
-        self.algorithm_type = Run.get_algorithm_type(algorithm)
         self.args = args
+        self.args_file_path = args_file_path
 
     alg_type_regex = re.compile(".*_([^_]+_to_[^_]+)$")
 
@@ -41,7 +95,7 @@ class Run:
         raise ValueError(f"Invalid algorithm name {algorithm}")
 
     @classmethod
-    def from_dict(cls, idx: int, data) -> List["Run"]:
+    def from_dict(cls, idx: int, exe: executable.Executable, base_dir_path: Path, input_data_dir: Path, data) -> List["Run"]:
         algorithm = data["algorithm"]
         base_name = data["name"] if "name" in data else f"{idx}_{algorithm}"
         args = data["args"] if "args" in data else {}
@@ -60,8 +114,10 @@ class Run:
             return [cls(
                 idx,
                 base_name,
+                exe,
                 algorithm,
                 singles,
+                input_data_dir / f"{idx}-{base_name}-args.json"
             )]
 
         # Generate all combinations of values from each generate key
@@ -71,22 +127,23 @@ class Run:
         for combination in combinations:
             name_suffix = "_".join(str(val) for val in combination)
             run_args = {**singles, **dict(zip(keys, combination))}
+            name = f"{base_name}__{name_suffix}__"
             runs.append(cls(
                 idx,
-                f"{base_name}__{name_suffix}__",
+                name,
+                exe,
                 algorithm,
-                run_args
+                run_args,
+                input_data_dir / f"{idx}-{name}-args.json",
             ))
         return runs
 
-    def create_args_file(self, path: Path):
-        with path.open("w") as f:
+    def prepare(self):
+        with self.args_file_path.open("w") as f:
             json.dump(self.args, f)
 
     def run(
             self,
-            exe: executable.Executable,
-            args_path: Path,
             left_input: Path,
             right_input: Path,
             data_type: str,
@@ -99,12 +156,12 @@ class Run:
             verbose: bool
     ):
         for iteration in range(iterations):
-            print(f"Iteration {iteration}", end="\r")
+            print(f"Iteration {iteration + 1}/{iterations}", end="\r")
             out_data_path = out_data_dir / (f"{iteration}.csv" if keep_outputs else "out.csv")
-            exe.run_benchmark(
+            self.exe.run_benchmark(
                 self.algorithm,
                 data_type,
-                args_path,
+                self.args_file_path,
                 left_input,
                 right_input,
                 out_data_path,
@@ -116,9 +173,68 @@ class Run:
             )
 
 
+class ExternalRun(Run):
+    def __init__(
+            self,
+            idx: int,
+            name: str,
+            alg_type: str,
+            exe: executable.Executable,
+            script_path: Path,
+    ):
+        super().__init__(idx, name, alg_type)
+        self.exe = exe
+        self.script = benchmark_script.BenchmarkScript(script_path)
+
+    @classmethod
+    def from_dict(cls, idx: int, exe: executable.Executable, base_dir_path: Path, input_data_dir: Path, data) -> List["ExternalRun"]:
+        alg_type = data["alg_type"]
+        name = data["name"] if "name" in data else f"{idx}_{alg_type}"
+        script_path = Path(data["path"])
+
+        script_path = script_path if script_path.is_absolute() else base_dir_path / script_path
+        return [
+            cls(idx,
+                name,
+                alg_type,
+                exe,
+                script_path,
+            )
+        ]
+
+    def run(self,
+            left_input: Path,
+            right_input: Path,
+            data_type: str,
+            iterations: int,
+            result_times_path: Path,
+            result_stats_path: Path,
+            out_data_dir: Path,
+            keep_outputs: bool,
+            validation_data_path: Optional[Path],
+            verbose: bool
+            ):
+        self.script.run_benchmark(
+            self.algorithm_type,
+            data_type,
+            iterations,
+            left_input,
+            right_input,
+            out_data_dir,
+            result_times_path,
+            verbose
+        )
+
+        if validation_data_path is not None:
+            output_paths = [file for file in out_data_dir.glob("*") if file.is_file()]
+            validation_csv = self.exe.validate_data(validation_data_path, output_paths, csv=True, normalize=False)
+            result_stats_path.write_text(validation_csv)
+
+
 class GlobalConfig:
     def __init__(
             self,
+            base_dir_path: Path,
             output_path: Path,
             sizes: Optional[input_size.InputSize],
             data_type: Optional[str],
@@ -126,6 +242,17 @@ class GlobalConfig:
             validate: Optional[bool],
             keep: Optional[bool],
     ):
+        """
+
+        :param base_dir_path: Path to the directory containing the benchmark definition
+        :param output_path: Path to a writable directory to be created and used for benchmarks
+        :param sizes: The default set of input sizes to be used
+        :param data_type: Default data type to be used
+        :param iterations: Default number of iterations of each benchmark
+        :param validate: Default flag if the outputs should be validated
+        :param keep: Default flag if outputs of each iterations should be kept
+        """
+        self.base_dir_path = base_dir_path
         self.output_path = output_path
         self.sizes = sizes
         self.data_type = data_type
@@ -138,11 +265,12 @@ class GlobalConfig:
         return self.output_path / "data"
 
     @classmethod
-    def from_dict(cls, data, output_path: Path) -> "GlobalConfig":
+    def from_dict(cls, data, base_dir_path: Path, output_path: Path) -> "GlobalConfig":
         if data is None:
-            return cls(output_path, None, None, None, None, None)
+            return cls(base_dir_path, output_path, None, None, None, None, None)
 
         return cls(
+            base_dir_path,
             output_path,
             [input_size.InputSize.from_dict_or_string(in_size) for in_size in
              data["sizes"]] if "sizes" in data else None,
@@ -162,7 +290,8 @@ class Group:
             sizes: List[input_size.InputSize],
             data_type: str,
             result_dir: Path,
-            data_dir: Path,
+            input_data_dir: Path,
+            output_data_dir: Path,
             iterations: int,
             validate: bool,
             keep: bool
@@ -173,8 +302,8 @@ class Group:
         self.sizes = sizes
         self.data_type = data_type
         self.result_dir = result_dir
-        self.input_data_dir = data_dir / "inputs"
-        self.output_data_dir = data_dir / "outputs"
+        self.input_data_dir = input_data_dir
+        self.output_data_dir = output_data_dir
         self.iterations = iterations
         self.validate = validate
         self.keep = keep
@@ -212,9 +341,11 @@ class Group:
         group_dir = global_config.output_path / unique_name
         group_data_dir = global_config.data_path / unique_name
 
+        input_data_dir = group_data_dir / "inputs"
+        output_data_dir = group_data_dir / "outputs"
         try:
             # Load warps of runs and flatten them into a list of runs
-            runs = list(itertools.chain.from_iterable([Run.from_dict(run_idx, run) for run_idx, run in enumerate(data["runs"])]))
+            runs = list(itertools.chain.from_iterable([Run.from_dict(run_idx, exe, global_config.base_dir_path, input_data_dir, run) for run_idx, run in enumerate(data["runs"])]))
         except ValueError as e:
             print(f"Failed to load runs: {e}", file=sys.stderr)
             sys.exit(1)
@@ -237,7 +368,7 @@ class Group:
                 )
                 sys.exit(1)
 
-        return cls(name, runs, alg_type, sizes, data_type, group_dir, group_data_dir, iterations, validate, keep)
+        return cls(name, runs, alg_type, sizes, data_type, group_dir, input_data_dir, output_data_dir, iterations, validate, keep)
 
     def generate_inputs(
             self,
@@ -266,7 +397,6 @@ class Group:
 
     def run(
             self,
-            exe: executable.Executable,
             valid: validator.Validator,
             prevent_override: bool,
             verbose: bool
@@ -278,8 +408,7 @@ class Group:
         self.output_data_dir.mkdir(parents=True)
 
         for run in self.runs:
-            args_path = self.input_data_dir / f"{run.idx}-{run.name}-args.json"
-            run.create_args_file(args_path)
+            run.prepare()
 
         num_steps = len(self.sizes) * len(self.runs) + len(self.sizes) + (len(self.sizes) if self.validate else 0)
         step = 1
@@ -304,8 +433,6 @@ class Group:
             for run in self.runs:
                 step = self.log_step(step, num_steps, f"Benchmarking {run.name} for {in_size}")
 
-                args_path = self.input_data_dir / f"{run.idx}-{run.name}-args.json"
-
                 measurement_suffix = f"{run.idx}-{input_idx}-{run.name}-{in_size}"
                 out_data_dir = self.output_data_dir / f"{measurement_suffix}"
                 out_data_dir.mkdir(parents=True)
@@ -314,8 +441,6 @@ class Group:
                 measurement_output_stats_path = self.result_dir / f"{measurement_suffix}-output_stats.csv"
 
                 run.run(
-                    exe,
-                    args_path,
                     left_path,
                     right_path,
                     self.data_type,
@@ -356,12 +481,15 @@ def run_bechmarks(
     definition = parse_benchmark_config(benchmark_def_file)
     benchmark = definition["benchmark"]
     name = benchmark["name"]
-    if out_dir_path is None:
-        out_dir_path = benchmark_def_file.parent / name
-    elif not out_dir_path.is_absolute():
-        out_dir_path = benchmark_def_file.parent / out_dir_path
 
-    global_config = GlobalConfig.from_dict(benchmark.get("config", None), out_dir_path)
+    base_dir_path = benchmark_def_file.parent
+
+    if out_dir_path is None:
+        out_dir_path = base_dir_path / name
+    elif not out_dir_path.is_absolute():
+        out_dir_path = base_dir_path / out_dir_path
+
+    global_config = GlobalConfig.from_dict(benchmark.get("config", None), base_dir_path, out_dir_path)
     groups = [Group.from_dict(group_data, global_config, group_idx, exe) for group_idx, group_data in enumerate(benchmark["groups"])]
 
     if len(group_filter) != 0:
@@ -370,7 +498,6 @@ def run_bechmarks(
     for group_idx, group in enumerate(groups):
         print(f"-- [{group_idx + 1}/{len(groups)}] Running group {group.name} --")
         group.run(
-            exe,
             valid,
             prevent_overwrite,
             verbose

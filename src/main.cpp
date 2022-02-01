@@ -49,19 +49,26 @@ namespace po = boost::program_options;
 
 template<typename DATATYPE>
 void validate(
-    const std::filesystem::path& target_path,
     const std::filesystem::path& valid_path,
-    bool normalize
+    const std::vector<std::filesystem::path>& target_paths,
+    bool normalize,
+    bool csv
 ){
-    std::ifstream target_file(target_path);
+    simple_logger logger{!csv, true};
+
     std::ifstream valid_file(valid_path);
-    auto target = data_array<DATATYPE>::template load_from_csv<no_padding>(target_file);
+
     auto valid = data_array<DATATYPE>::template load_from_csv<no_padding>(valid_file);
 
-    if (normalize) {
-        target = normalize_fft_results(target);
+    for (std::size_t i = 0; i < target_paths.size(); ++i) {
+        logger.log("Validating "s + target_paths[i].string());
+        std::ifstream target_file(target_paths[i]);
+        auto target = data_array<DATATYPE>::template load_from_csv<no_padding>(target_file);
+        if (normalize) {
+            target = normalize_fft_results(target);
+        }
+        logger.result_stats(validate_result(target, valid), i == 0);
     }
-    std::cout << validate_result(target, valid);
 }
 
 template<typename DURATION>
@@ -306,17 +313,18 @@ int main(int argc, char **argv) {
         po::options_description val_opts{"Validate options"};
         val_opts.add_options()
             ("normalize,n", po::bool_switch()->default_value(false), "Normalize the data to be validated as they are denormalized fft output")
+            ("csv,c", po::bool_switch()->default_value(false), "CSV output")
         ;
 
         po::options_description val_pos_opts;
         val_pos_opts.add_options()
-            ("validate_data_path", po::value<std::filesystem::path>()->required(), "path to the data to be validated")
             ("template_data_path", po::value<std::filesystem::path>()->required(), "path to the valid data")
+            ("validate_data_path", po::value<std::vector<std::filesystem::path>>()->required()->multitoken(), "path to the data to be validated")
             ;
 
         po::positional_options_description val_positional;
-        val_positional.add("validate_data_path", 1);
         val_positional.add("template_data_path", 1);
+        val_positional.add("validate_data_path", -1);
 
         po::options_description all_val_options;
         all_val_options.add(val_opts);
@@ -457,10 +465,11 @@ int main(int argc, char **argv) {
             po::notify(vm);
 
             auto normalize = vm["normalize"].as<bool>();
-            auto validate_data = vm["validate_data_path"].as<std::filesystem::path>();
+            auto csv = vm["csv"].as<bool>();
             auto template_data = vm["template_data_path"].as<std::filesystem::path>();
+            auto validate_data = vm["validate_data_path"].as<std::vector<std::filesystem::path>>();
 
-            validate<double>(validate_data, template_data, normalize);
+            validate<double>(template_data, validate_data, normalize, csv);
         } else if (cmd == "list") {
             auto algs = get_sorted_keys(algorithms<float>);
             for (auto&& alg: algs) {

@@ -18,4 +18,4 @@ WORK_DIR="${PWD}"
 
 cd "${DIR}"
 
-poetry run bash -c "cd ${WORK_DIR} && python3 \"${DIR}/crosscorr.py\" -o \"${OUT}\" -d \"$2\" \"$1\" \"${IN1}\" \"${IN2}\""
+poetry run bash -c "cd \"${WORK_DIR}\" && python3 \"${DIR}/crosscorr.py\" -o \"${OUT}\" -d \"$2\" \"$1\" \"${IN1}\" \"${IN2}\""

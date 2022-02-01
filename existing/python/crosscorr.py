@@ -1,8 +1,8 @@
 import argparse
-
+import time
 import numpy as np
 
-from typing import Tuple, Any
+from typing import Tuple, Any, Optional
 
 from scipy import signal
 from pathlib import Path
@@ -11,8 +11,32 @@ from matrix import MatrixArray
 
 DEFAULT_OUTPUT_PATH = Path.cwd() / "output.csv"
 
-def result_matrix_size(left_size: Tuple[int, int], right_size: Tuple[int, int])-> Tuple[int, int]:
+
+class Timings:
+    def __init__(self):
+        self.labels = ["Total", "Load", "Prepare", "Transfer", "Run", "Final"]
+        self.values = [0] * len(self.labels)
+        self.starts = [0] * len(self.labels)
+
+    def start(self, label: int):
+        self.starts[label] = time.perf_counter_ns()
+
+    def measure(self, label: int):
+        now = time.perf_counter_ns()
+        self.record(label, now - self.starts[label])
+
+    def record(self, label: int, value: int):
+        self.values[label] = value
+
+    def save_csv(self, path: Path):
+        append = path.exists()
+        with path.open("a" if append else "w") as f:
+            np.savetxt(f, [self.values], delimiter=",", fmt="%u", header="" if append else ",".join(self.labels), comments="")
+
+
+def result_matrix_size(left_size: Tuple[int, int], right_size: Tuple[int, int]) -> Tuple[int, int]:
     return left_size[0] + right_size[0] - 1, left_size[1] + right_size[1] - 1
+
 
 def one_to_one(
     left: MatrixArray,
@@ -30,8 +54,8 @@ def one_to_one(
 
 
 def one_to_many(
-        left: MatrixArray,
-        right: MatrixArray
+    left: MatrixArray,
+    right: MatrixArray,
 ) -> MatrixArray:
     if left.num_matrices != 1 or right.num_matrices < 1:
         raise ValueError(f"Invalid number of input matrices: left={left.num_matrices}, right={right.num_matrices}")
@@ -51,8 +75,8 @@ def one_to_many(
 
 
 def n_to_mn(
-        left: MatrixArray,
-        right: MatrixArray
+    left: MatrixArray,
+    right: MatrixArray,
 ) -> MatrixArray:
     if left.num_matrices < 1 or right.num_matrices < 1 or right.num_matrices % left.num_matrices != 0:
         raise ValueError(f"Invalid number of input matrices: left={left.num_matrices}, right={right.num_matrices}")
@@ -79,8 +103,8 @@ def n_to_mn(
 
 
 def n_to_m(
-        left: MatrixArray,
-        right: MatrixArray
+    left: MatrixArray,
+    right: MatrixArray,
 ) -> MatrixArray:
     if left.num_matrices < 1 or right.num_matrices < 1:
         raise ValueError(f"Invalid number of input matrices: left={left.num_matrices}, right={right.num_matrices}")
@@ -105,7 +129,8 @@ def run_cross_corr(
         data_type: Any,
         left_input: Path,
         right_input: Path,
-        output: Path
+        output: Path,
+        timings_path: Optional[Path]
 ):
     algs = {
         "one_to_one": one_to_one,
@@ -117,13 +142,25 @@ def run_cross_corr(
     if alg not in algs:
         alg_names = ", ".join(algs.keys())
         raise ValueError(f"Invalid algorithm {alg}, expected one of {alg_names}")
+    timings = Timings()
+    timings.start(0)
 
+    timings.start(1)
     left = MatrixArray.load_from_csv(left_input, data_type)
     right = MatrixArray.load_from_csv(right_input, data_type)
+    timings.measure(1)
 
+    timings.start(4)
     result = algs[alg](left, right)
+    timings.measure(4)
+
+    timings.measure(0)
+
     with output.open("w") as f:
         result.save_to_csv(f)
+
+    if timings_path is not None:
+        timings.save_csv(timings_path)
 
 
 def _run_cross_corr(args: argparse.Namespace):
@@ -137,7 +174,8 @@ def _run_cross_corr(args: argparse.Namespace):
         data_type,
         args.left_input_path,
         args.right_input_path,
-        args.output_path
+        args.output_path,
+        args.timings_path
     )
 
 
@@ -151,6 +189,9 @@ def arguments(parser: argparse.ArgumentParser):
                         choices=["single", "double"],
                         help="Datatype to be used for computation"
                         )
+    parser.add_argument("-t", "--timings_path",
+                        type=Path,
+                        help=f"Path to store time measurements")
     parser.add_argument("algorithm",
                         type=str,
                         help="Algorithms to run")
