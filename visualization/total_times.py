@@ -7,7 +7,7 @@ from shared import InputSize, Benchmark, load_group_results
 
 def per_matrix_size(args: argparse.Namespace):
     benchmarks = load_group_results(args.results_path)
-    matrix_number_groups = set([(benchmark.input_size.left_matrices,benchmark.input_size.right_matrices) for benchmark in benchmarks])
+    matrix_number_groups = set([(benchmark.input_size.left_matrices, benchmark.input_size.right_matrices) for benchmark in benchmarks])
     run_names = set(benchmark.name for benchmark in benchmarks)
 
     combinations = [(name, matrix_number[0], matrix_number[1]) for name in run_names for matrix_number in matrix_number_groups]
