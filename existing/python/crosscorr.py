@@ -14,7 +14,7 @@ DEFAULT_OUTPUT_PATH = Path.cwd() / "output.csv"
 
 class Timings:
     def __init__(self):
-        self.labels = ["Total", "Load", "Prepare", "Transfer", "Run", "Final"]
+        self.labels = ["Total", "Load", "Prepare", "Transfer", "Run", "Finalize"]
         self.values = [0] * len(self.labels)
         self.starts = [0] * len(self.labels)
 
