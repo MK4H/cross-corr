@@ -83,4 +83,14 @@ void run_scatter(
     dsize_t items_per_threads
 );
 
+template<typename T, typename RES>
+void run_ccn_warp_shuffle(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_rows_per_block
+);
+
 }

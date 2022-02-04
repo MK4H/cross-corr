@@ -121,6 +121,8 @@ int run_measurement(
     if (args_path) {
         std::ifstream args_file{*args_path};
         args_file >> args;
+    } else {
+        args = json::object();
     }
 
     ALG alg{args};
@@ -252,6 +254,7 @@ static std::unordered_map<std::string, std::function<int(
     {"nai_orig_one_to_one", run_measurement<naive_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
     {"nai_orig_one_to_many", run_measurement<naive_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
     {"nai_orig_n_to_mn", run_measurement<naive_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+    {"nai_warp_shuffle_one_to_one", run_measurement<naive_warp_shuffle_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
     {"nai_rows", run_measurement<naive_ring_buffer_row_alg<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
     {"nai_def_block", run_measurement<naive_def_per_block<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
     {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
