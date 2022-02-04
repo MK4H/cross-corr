@@ -63,7 +63,7 @@ protected:
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class cpu_n_to_mn: public n_to_mn<T, ALLOC> {
 public:
-    cpu_n_to_mn([[maybe_unused]] const json& args)
+    explicit cpu_n_to_mn([[maybe_unused]] const json& args)
         :n_to_mn<T, ALLOC>(false, labels.size()), refs_(), targets_(), results_()
     {
 
@@ -118,7 +118,7 @@ std::vector<std::string> cpu_n_to_mn<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_original_alg_n_to_mn: public n_to_mn<T, ALLOC> {
 public:
-    naive_original_alg_n_to_mn([[maybe_unused]] const json& args)
+    explicit naive_original_alg_n_to_mn([[maybe_unused]] const json& args)
         :n_to_mn<T, ALLOC>(false, labels.size()), refs_(), targets_(), results_()
     {
 
@@ -205,7 +205,7 @@ std::vector<std::string> naive_original_alg_n_to_mn<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_original_alg_n_to_mn: public n_to_mn<T, ALLOC> {
 public:
-    fft_original_alg_n_to_mn([[maybe_unused]] const json& args)
+    explicit fft_original_alg_n_to_mn([[maybe_unused]] const json& args)
         :n_to_mn<T, ALLOC>(true, labels.size()), refs_(), targets_(), results_(), fft_buffer_size_(0)
     {
         hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
@@ -223,7 +223,7 @@ public:
         return results_;
     }
 
-    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
         return std::vector<std::pair<std::string, std::string>>{
             std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_))
         };
@@ -329,7 +329,7 @@ std::vector<std::string> fft_original_alg_n_to_mn<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_reduced_transfer_n_to_mn: public n_to_mn<T, ALLOC> {
 public:
-    fft_reduced_transfer_n_to_mn([[maybe_unused]] const json& args)
+    explicit fft_reduced_transfer_n_to_mn([[maybe_unused]] const json& args)
         :n_to_mn<T, ALLOC>(true, labels.size()), refs_(), targets_(), results_(), fft_buffer_size_(0)
     {
         scatter_threads_per_block_  = args.value("scatter_threads_per_block", 256);
@@ -349,7 +349,7 @@ public:
         return results_;
     }
 
-    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
         return std::vector<std::pair<std::string, std::string>>{
             std::make_pair("scatter_threads_per_block", std::to_string(scatter_threads_per_block_)),
             std::make_pair("scatter_items_per_thread", std::to_string(scatter_items_per_thread_)),

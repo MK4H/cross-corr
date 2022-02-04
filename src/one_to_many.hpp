@@ -33,7 +33,7 @@ protected:
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class cpu_one_to_many: public one_to_many<T, ALLOC> {
 public:
-    cpu_one_to_many([[maybe_unused]] const json& args)
+    explicit cpu_one_to_many([[maybe_unused]] const json& args)
         :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_()
     {
 
@@ -87,7 +87,7 @@ std::vector<std::string> cpu_one_to_many<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_original_alg_one_to_many: public one_to_many<T, ALLOC> {
 public:
-    naive_original_alg_one_to_many([[maybe_unused]] const json& args)
+    explicit naive_original_alg_one_to_many([[maybe_unused]] const json& args)
         :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_()
     {
 
@@ -175,7 +175,7 @@ std::vector<std::string> naive_original_alg_one_to_many<T, DEBUG, ALLOC>::labels
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_def_per_block: public one_to_many<T, ALLOC> {
 public:
-    naive_def_per_block([[maybe_unused]] const json& args)
+    explicit naive_def_per_block([[maybe_unused]] const json& args)
         :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_(), items_per_block_(), threads_per_block_()
     {
         items_per_block_ = args.value("items_per_block", 10);
@@ -193,7 +193,7 @@ public:
         return results_;
     }
 
-    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
         return std::vector<std::pair<std::string, std::string>>{
             std::make_pair("items_per_block", std::to_string(items_per_block_)),
             std::make_pair("threads_per_block", std::to_string(threads_per_block_))
@@ -273,7 +273,7 @@ std::vector<std::string> naive_def_per_block<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_original_alg_one_to_many: public one_to_many<T, ALLOC> {
 public:
-    fft_original_alg_one_to_many([[maybe_unused]] const json& args)
+    explicit fft_original_alg_one_to_many([[maybe_unused]] const json& args)
         :one_to_many<T, ALLOC>(true, labels.size()), ref_(), targets_(), results_(), fft_buffer_size_(0)
     {
         hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
@@ -291,7 +291,7 @@ public:
         return results_;
     }
 
-    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
         return std::vector<std::pair<std::string, std::string>>{
             std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_))
         };
@@ -397,7 +397,7 @@ std::vector<std::string> fft_original_alg_one_to_many<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_reduced_transfer_one_to_many: public one_to_many<T, ALLOC> {
 public:
-    fft_reduced_transfer_one_to_many([[maybe_unused]] const json& args)
+    explicit fft_reduced_transfer_one_to_many([[maybe_unused]] const json& args)
         :one_to_many<T, ALLOC>(true, labels.size()), ref_(), targets_(), results_(), fft_buffer_size_(0)
     {
         scatter_threads_per_block_  = args.value("scatter_threads_per_block", 256);
@@ -417,7 +417,7 @@ public:
         return results_;
     }
 
-    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
         return std::vector<std::pair<std::string, std::string>>{
             std::make_pair("scatter_threads_per_block", std::to_string(scatter_threads_per_block_)),
             std::make_pair("scatter_items_per_thread", std::to_string(scatter_items_per_thread_)),

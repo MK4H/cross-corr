@@ -125,11 +125,11 @@ public:
         return is_fft_;
     }
 
-    const std::vector<sw_clock::duration> measurements() const {
+    const std::vector<sw_clock::duration>& measurements() const {
         return sw_.results();
     }
 
-    virtual const std::vector<std::pair<std::string, std::string>> additional_properties() const {
+    virtual std::vector<std::pair<std::string, std::string>> additional_properties() const {
         return std::vector<std::pair<std::string, std::string>>{};
     }
 protected:

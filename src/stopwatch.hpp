@@ -170,7 +170,7 @@ public:
      * MUST call cuda_collect before retrieving results
      * otherwise the cuda measurements will not be present
      */
-    const std::vector<typename CLOCK::duration> results() const {
+    const std::vector<typename CLOCK::duration>& results() const {
         return measurements_;
     }
 private:

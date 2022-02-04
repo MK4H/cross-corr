@@ -37,7 +37,7 @@ protected:
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class cpu_n_to_m: public n_to_m<T, ALLOC> {
 public:
-    cpu_n_to_m([[maybe_unused]] const json& args)
+    explicit cpu_n_to_m([[maybe_unused]] const json& args)
         :n_to_m<T, ALLOC>(false, labels.size()), refs_(), targets_(), results_()
     {
 
@@ -91,7 +91,7 @@ std::vector<std::string> cpu_n_to_m<T, DEBUG, ALLOC>::labels{
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_better_hadamard_alg_n_to_m: public n_to_m<T, ALLOC> {
 public:
-    fft_better_hadamard_alg_n_to_m([[maybe_unused]] const json& args)
+    explicit fft_better_hadamard_alg_n_to_m([[maybe_unused]] const json& args)
         :n_to_m<T, ALLOC>(true, labels.size()), refs_(), targets_(), results_(), fft_buffer_size_(0)
     {
         hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
@@ -110,7 +110,7 @@ public:
         return results_;
     }
 
-    const std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
         return std::vector<std::pair<std::string, std::string>>{
             std::make_pair("hadamard_threads_per_block", std::to_string(hadamard_threads_per_block_)),
             std::make_pair("hadamard_items_per_thread", std::to_string(hadamard_items_per_thread_))
