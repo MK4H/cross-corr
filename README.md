@@ -15,22 +15,11 @@ Switch to virtual terminal:
 ctrl+alt+F2
 ```
 
-Stop XServer:
-```
-sudo systemctl stop gdm
-```
+DON'T need to stop the XServer if no user is logged in
 
-Switch again to virtual terminal, as it switches to the stopped GUI terminal for some reason:
-```
-ctrl+alt+F2
-```
 
 Then run your profiling using the NSight Compute CLI.
 
-Start the XServer again:
-```
-sudo systemctl start gdm
-```
 
 ## Possible optimizations
 

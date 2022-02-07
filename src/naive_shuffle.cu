@@ -78,13 +78,13 @@ __global__ void ccn_warp_shuffle(
     dsize2_t matrix_size,
     dsize2_t search_size
 ) {
-    // Initialize by loading a warp worth of data from right matrix
-    // as we will be iterating over the right matrix
+    // Initialize by loading a warp worth of data from left matrix
+    // as we will be iterating over the left matrix
 
-    // Then broadcast from the left data in sequence from all threads
+    // Then broadcast from the right data in sequence from all threads
     // With each broadcast, multiply and sum with the current value from
-    // right matrix and then shuffle down the used values from right matrix.
-    // Then shuffle the second warp worth of data from right matrix,
+    // left matrix and then shuffle down the used values from left matrix.
+    // Then shuffle the second warp worth of data from left matrix,
     // passing the last thread the value that is shuffled out of the thread 0
     // and would be forgotten
     // basically with warp size 4, it will go
@@ -92,6 +92,12 @@ __global__ void ccn_warp_shuffle(
     // each time broadcasting first from thread 0, then 1, then 2
     // Once we get to 0 1 2 3 x x x x, we load one warp worth of values
     // from both left and right matrices
+
+    // If the shift computed by the current thread does not overlap with the broadcast value
+    // that means it tries to read from the left matrix out of bounds and thus will read 0
+    // and ignore the broadcast value
+    // By shifting the values down, when it reaches the part that overlaps it will receive
+    // value shifted from the previous thread
 
     cg::thread_block ctb = cg::this_thread_block();
     cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
@@ -121,220 +127,83 @@ __global__ void ccn_warp_shuffle(
 
     // Max of the shifts computed by the threads of the current warp
     // This will always be the shift computed by thread 31
+    // It is clamped into search size as matrix may not be of size divisible by warp_size
     vec2<int> warp_max_shift = {
-            static_cast<int>(last_warp_thread_out_pos.x) - static_cast<int>(half_search_size.x),
-            static_cast<int>(last_warp_thread_out_pos.y) - static_cast<int>(half_search_size.y)
+            static_cast<int>(min(last_warp_thread_out_pos.x, search_size.x)) - static_cast<int>(half_search_size.x),
+            static_cast<int>(min(last_warp_thread_out_pos.y, search_size.y)) - static_cast<int>(half_search_size.y)
     };
 
-    dsize_t warp_x_right_start = max(warp_min_shift.x, 0);
-    dsize_t warp_x_right_end = min(matrix_size.x + warp_max_shift.x, matrix_size.x);
-    dsize_t warp_y_right_start = max(warp_min_shift.y, 0);
-    dsize_t warp_y_right_end = min(matrix_size.y + warp_max_shift.y, matrix_size.y);
 
-//    if (warp.thread_rank() == 0) {
-//        printf("Block: [%u, %u], Warp: %u, Min shift: [%d, %d], Max shift: [%d, %d] Start: [%u, %u], End: [%u, %u]\n",
-//               ctb.group_index().x,
-//               ctb.group_index().y,
-//               warp.meta_group_rank(),
-//               warp_min_shift.x,
-//               warp_min_shift.y,
-//               warp_max_shift.x,
-//               warp_max_shift.y,
-//               warp_x_left_start,
-//               warp_y_left_start,
-//               warp_x_left_end,
-//               warp_y_left_end);
-//    }
+    // The start depends on the how far right the right matrix is shifted over the left matrix
+    // if the right most shift, aka max shift is positive, that means that the left side of the right
+    // matrix is inside the left matrix, so we need to start from the 0 element
+    // if the max shift is negative, then absolute value tells us how many items of the right matrix are not needed
+    // as they do not overlap in any shift computed by the matrix, as all smaller shifts have the right matrix more to the left
+    // so they overlap less values
+    dsize_t warp_x_right_start = warp_max_shift.x >= 0 ? 0 : -warp_max_shift.x;
+
+    // The last value will be read by the min shift, so if it is larger than 0, the right side of the right matrix overhangs
+    // the left matrix and so we don't need to reed the last abs(min_shift) values. Otherwise the right side of the right
+    // matrix is inside the left matrix and we need to read it till the end.
+    dsize_t warp_x_right_end = warp_min_shift.x >= 0 ? matrix_size.x - warp_min_shift.x : matrix_size.x;
+
+    // All threads in a warp process the same range of rows, so warp_min_shift.y and warp_max_shift.y are the same
+    dsize_t warp_y_right_start = max(-warp_min_shift.y, 0);
+    dsize_t warp_y_right_end = min(matrix_size.y - warp_max_shift.y, matrix_size.y);
 
     RES sum = 0;
     for (dsize_t warp_y_right = warp_y_right_start; warp_y_right < warp_y_right_end; warp_y_right += 1) {
         // In y axis, both max and min shift are equal in the current implementation
-        int warp_y_left = static_cast<int>(warp_y_right) - warp_min_shift.y;
+        int warp_y_left = static_cast<int>(warp_y_right) + warp_min_shift.y;
 
         const T* right_row = right + warp_y_right * matrix_size.x;
         const T* left_row = left + warp_y_left * matrix_size.x;
 
-        if (warp_min_shift.x >= 0) {
-            // This branch handles the situations where the matrices
-            // are perfectly aligned for the thread 0 or the right matrix
-            // left side is inside the left matrix
-            // This allows us to start with the assumption that thread 0
-            // will always have some values to compute
-            // and we can just incrementally go through the right matrix
-            // shifting the values down and go through the left matrix broadcasting
-            // from left to right
-            // The handling
+        int warp_x_left = static_cast<int>(warp_x_right_start) + warp_min_shift.x;
 
-            int warp_x_left = static_cast<int>(warp_x_right_start) - warp_max_shift.x;
+        // Preload the first values from right matrix
+        T thread_left_bottom = load_with_bounds_check(
+                left_row,
+                warp_x_left + warp.thread_rank(),
+                matrix_size.x
+        );
 
-            // Preload the first values from right matrix
-            T thread_left_bottom = load_with_bounds_check(
-                    left_row,
-                    warp_x_left + warp.thread_rank(),
-                    matrix_size.x
-            );
-
-//            if (ctb.group_index().x == 0 && ctb.group_index().y == 0 && warp.meta_group_rank() == 0) {
-//                printf("Block: [%u, %u], Warp: %u, Thread: %u, Right index: [%d, %d], Value: %f\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       warp.meta_group_rank(),
-//                       warp.thread_rank(),
-//                       warp_x_right,
-//                       warp_y_right,
-//                       thread_right_bottom);
-//            }
-
-            for (
-                    dsize_t warp_x_right = warp_x_right_start;
-                    warp_x_right < warp_x_right_end;
-                    warp_x_right += warp.size(), warp_x_left += warp.size()
-                    ) {
-
-                // Load next warp_size values
-                // Load 0 if out of bounds
-
-                // Left index will always be greater than 0
-                dsize_t right_idx = warp_x_right + warp.thread_rank();
-
-                // Right index might be out of bounds even below 0, depending on the shift
-                // It is also reading warp.size() next values, as we have warp.size() values already loaded
-                // from the initialization before the for loop
-                int left_idx = warp_x_left + warp.thread_rank() + warp.size();
-                // TODO: Either do bounds check or limit the for loop below
-                T thread_right = load_with_bounds_check(right_row, right_idx, matrix_size.x);
-                T thread_left_top = load_with_bounds_check(left_row, left_idx, matrix_size.x);
-
-//                if (ctb.group_index().x == 0 && ctb.group_index().y == 0 && warp.meta_group_rank() == 0) {
-//                    printf("Block: [%u, %u], Warp: %u, Thread: %u, Right index: [%d, %d], Value: %f\n",
-//                           ctb.group_index().x,
-//                           ctb.group_index().y,
-//                           warp.meta_group_rank(),
-//                           warp.thread_rank(),
-//                           warp_x_right,
-//                           warp_y_right,
-//                           thread_right_top);
-//                }
-//
-//                if (ctb.group_index().x == 0 && ctb.group_index().y == 0 && warp.meta_group_rank() == 0) {
-//                    printf("Block: [%u, %u], Warp: %u, Thread: %u, Right index: [%d, %d], Left value: %f\n",
-//                           ctb.group_index().x,
-//                           ctb.group_index().y,
-//                           warp.meta_group_rank(),
-//                           warp.thread_rank(),
-//                           warp_x_right,
-//                           warp_y_right,
-//                           thread_left);
-//                }
-
-                for (dsize_t i = 0; i < warp.size(); ++i) {
-                    // Broadcast
-                    auto right_val = warp.shfl(thread_right, i);
-
-                    // No need to mask, if either values is out of bounds the value will be 0
-                    sum += thread_left_bottom * right_val;
-
-                    // Shuffle does modulo srcLane automatically
-                    // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
-                    //  making it behave as one continuous buffer
-                    thread_left_bottom = warp.shfl(warp.thread_rank() != 0 ? thread_left_bottom : thread_left_top,
-                                                    warp.thread_rank() + 1);
-                    thread_left_top = warp.shfl_down(thread_left_top, 1);
-                }
-            }
-        } else {
-            // This branch handles the mirrored situation to the above branch, where
-            // the right side of the right matrix is inside the left matrix
-            // We have to go through both matrices from right to left
-            // both shifting up instead of down and broadcasting from thread 32
-            // down to 0
-            int warp_x_left = static_cast<int>(warp_x_right_end) + warp_max_shift.x - static_cast<int>(warp.size());
-
-            // Preload the first values from right matrix
-            T thread_left_top = load_with_bounds_check(
-                    left_row,
-                    warp_x_left + warp.thread_rank(),
-                    matrix_size.x
-            );
-
-//            if (ctb.group_index().x == 0 && ctb.group_index().y == 0 && warp.meta_group_rank() == 0) {
-//                printf("Block: [%u, %u], Warp: %u, Thread: %u, Right index: [%d, %d], Value: %f\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       warp.meta_group_rank(),
-//                       warp.thread_rank(),
-//                       warp_x_right,
-//                       warp_y_right,
-//                       thread_right_top);
-//            }
-
-            for (
-                    int warp_x_right = warp_x_right_end;
-                    warp_x_right > 0;
-                    warp_x_right -= warp.size(), warp_x_left -= warp.size()
+        for (
+            dsize_t warp_x_right = warp_x_right_start;
+            warp_x_right < warp_x_right_end;
+            warp_x_right += warp.size(), warp_x_left += warp.size()
             ) {
 
-                // Load next warp_size values
-                // Load 0 if out of bounds
+            // Load next warp_size values
+            // Load 0 if out of bounds
 
-                int right_idx = warp_x_right - warp.size() + warp.thread_rank();
+            // Right index will always be greater than 0 as we only
+            // iterate over part of the matrix
+            dsize_t right_idx = warp_x_right + warp.thread_rank();
 
-                // Right index might be out of bounds even below 0, depending on the shift
-                // It is also reading warp.size() previous values, as we have warp.size() values already loaded
-                // from the initialization before the for loop
-                int left_idx = warp_x_left - warp.size() + warp.thread_rank();
-                // TODO: Either do bounds check or limit the for loop below
-                T thread_right = load_with_bounds_check(right_row, right_idx, matrix_size.x);
-                T thread_left_bottom = load_with_bounds_check(left_row, left_idx, matrix_size.x);
+            // Left index might be out of bounds even below 0, depending on the shift
+            // It is also reading warp.size() next values, as we have warp.size() values already loaded
+            // from the initialization before the for loop
+            int left_idx = warp_x_left + warp.thread_rank() + warp.size();
+            // TODO: Either do bounds check or limit the for loop below
+            T thread_right = load_with_bounds_check(right_row, right_idx, matrix_size.x);
+            T thread_left_top = load_with_bounds_check(left_row, left_idx, matrix_size.x);
 
-//                if (ctb.group_index().x == 0 && ctb.group_index().y == 0 && warp.meta_group_rank() == 0) {
-//                    printf("Block: [%u, %u], Warp: %u, Thread: %u, Right index: [%d, %d], Value: %f\n",
-//                           ctb.group_index().x,
-//                           ctb.group_index().y,
-//                           warp.meta_group_rank(),
-//                           warp.thread_rank(),
-//                           warp_x_right,
-//                           warp_y_right,
-//                           thread_right_bottom);
-//                }
-//
-//                if (ctb.group_index().x == 0 && ctb.group_index().y == 0 && warp.meta_group_rank() == 0) {
-//                    printf("Block: [%u, %u], Warp: %u, Thread: %u, Right index: [%d, %d], Left value: %f\n",
-//                           ctb.group_index().x,
-//                           ctb.group_index().y,
-//                           warp.meta_group_rank(),
-//                           warp.thread_rank(),
-//                           warp_x_right,
-//                           warp_y_right,
-//                           thread_left);
-//                }
+            for (dsize_t i = 0; i < warp.size(); ++i) {
+                // Broadcast
+                auto right_val = warp.shfl(thread_right, i);
 
-                for (dsize_t i = 1; i <= warp.size(); ++i) {
-                    // Broadcast
-                    auto right_val = warp.shfl(thread_right, warp.size() - i);
+                // No need to mask, if either values is out of bounds the value will be 0
+                sum += thread_left_bottom * right_val;
 
-                    // No need to mask, if either values is out of bounds the value will be 0
-                    sum += thread_left_top * right_val;
-
-                    // Shuffle does modulo srcLane automatically
-                    // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
-                    //  making it behave as one continuous buffer
-                    thread_left_top = warp.shfl(warp.thread_rank() != warp.size() - 1 ? thread_left_top : thread_left_bottom,
-                                                    warp.thread_rank() - 1);
-                    thread_left_bottom = warp.shfl_up(thread_left_bottom, 1);
-                }
+                // Shuffle does modulo srcLane automatically
+                // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
+                //  making it behave as one continuous buffer
+                thread_left_bottom = warp.shfl(warp.thread_rank() != 0 ? thread_left_bottom : thread_left_top,
+                                               warp.thread_rank() + 1);
+                thread_left_top = warp.shfl_down(thread_left_top, 1);
             }
         }
-    }
-
-    if (warp.thread_rank() == 0 && ctb.group_index().y == 0) {
-        printf("Block: [%u, %u], Warp: %u, Output position: [%u, %u], Result: %f\n",
-               ctb.group_index().x,
-               ctb.group_index().y,
-               warp.meta_group_rank(),
-               output_pos.x,
-               output_pos.y,
-               sum);
     }
 
     if (output_pos.x < search_size.x && output_pos.y < search_size.y) {
