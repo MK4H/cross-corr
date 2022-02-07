@@ -7,6 +7,38 @@
         {
             "is_open": true,
             "path": "full.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_orig_64.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_shuffle_64.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_orig_128.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_orig_256.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_orig_512.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_warp_shuffle_128.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_warp_shuffle_256.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_warp_shuffle_512.ncu-rep"
         }
     ],
     "launcher": {
