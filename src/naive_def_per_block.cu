@@ -69,11 +69,11 @@ __global__ void ccn_def_per_block(
     shared_mem_buffer<T> ref_s = shared_mem_buffer<T>::allocate(&shared, matrix_size.area());
     shared_mem_buffer<T> def_s = shared_mem_buffer<T>::allocate(&shared, matrix_size.area());
 
-    ref_s.load(ctb, ref_mat, matrix_size.area());
+    ref_s.load_continuous(ctb, ref_mat, matrix_size.area());
 
     for (auto def_mat_idx = ctb.group_index().x; def_mat_idx < num_def_mats; def_mat_idx += g.group_dim().x) {
         auto def_offset = def_mat_idx * matrix_size.area();
-        def_s.load(ctb, def_mats + def_offset, matrix_size.area());
+        def_s.load_continuous(ctb, def_mats + def_offset, matrix_size.area());
 
         auto out_offset = def_mat_idx * search_size.area();
         auto out_mat = matrix_slice<RES>::from_position_size(

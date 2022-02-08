@@ -287,7 +287,7 @@ private:
 
     __device__ dsize_t load_part(cg::thread_block ctb, dsize_t buffer_offset, dsize_t src_offset) {
         auto part_slice = src_.subslice(buffer_.size() / NUM_PARTS, src_offset);
-        return buffer_.load(
+        return buffer_.load_continuous(
             ctb,
             part_slice.data(),
             min(buffer_.size() / NUM_PARTS, part_slice.size()),
