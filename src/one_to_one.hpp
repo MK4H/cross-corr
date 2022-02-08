@@ -321,7 +321,9 @@ protected:
                              d_result_,
                              target_.matrix_size(),
                              result_.matrix_size(),
-                             rows_per_block_
+                             1,
+                             rows_per_block_,
+                             1
                      )
         );
 

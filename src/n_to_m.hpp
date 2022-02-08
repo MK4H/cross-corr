@@ -88,6 +88,100 @@ template<typename T, bool DEBUG, typename ALLOC>
 std::vector<std::string> cpu_n_to_m<T, DEBUG, ALLOC>::labels{
 };
 
+
+template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
+class naive_original_alg_n_to_m: public n_to_m<T, ALLOC> {
+public:
+    explicit naive_original_alg_n_to_m([[maybe_unused]] const json& args)
+        :n_to_m<T, ALLOC>(false, labels.size()), refs_(), targets_(), results_()
+    {
+
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return refs_;
+    }
+    const data_array<T, ALLOC>& targets() const override {
+        return targets_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return results_;
+    }
+
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& def_path) override {
+        refs_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(def_path);
+
+        this->check_matrices_same_size(refs_, targets_);
+    }
+
+    void prepare_impl() override {
+        auto result_matrix_size = refs_.matrix_size() + targets_.matrix_size() - 1;
+        results_ = data_array<T, ALLOC>{result_matrix_size, refs_.num_matrices() * targets_.num_matrices()};
+
+        cuda_malloc(&d_refs_, refs_.size());
+        cuda_malloc(&d_targets_, targets_.size());
+        cuda_malloc(&d_results_, results_.size());
+    }
+
+    void transfer_impl() override {
+        cuda_memcpy_to_device(d_refs_, refs_);
+        cuda_memcpy_to_device(d_targets_, targets_);
+    }
+
+    void run_impl() override {
+        CUDA_MEASURE(this->label_index(0),
+                     start_kernels()
+        );
+
+        CUCH(cudaDeviceSynchronize());
+        CUCH(cudaGetLastError());
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(results_, d_results_);
+    }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
+    }
+
+private:
+
+    static std::vector<std::string> labels;
+
+    data_array<T, ALLOC> refs_;
+    data_array<T, ALLOC> targets_;
+
+    data_array<T, ALLOC> results_;
+
+    T* d_refs_;
+    T* d_targets_;
+    T* d_results_;
+
+    void start_kernels() {
+        for (dsize_t ref = 0; ref < refs_.num_matrices(); ++ref) {
+            run_cross_corr_naive_original(
+                d_refs_ + ref * refs_.matrix_size().area(),
+                d_targets_,
+                d_results_ + (ref * targets_.num_matrices()) * results_.matrix_size().area(),
+                targets_.matrix_size(),
+                results_.matrix_size(),
+                1,
+                targets_.num_matrices()
+            );
+        }
+    }
+};
+
+template<typename T, bool DEBUG, typename ALLOC>
+std::vector<std::string> naive_original_alg_n_to_m<T, DEBUG, ALLOC>::labels{
+    "Kernel"
+};
+
+
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_better_hadamard_alg_n_to_m: public n_to_m<T, ALLOC> {
 public:

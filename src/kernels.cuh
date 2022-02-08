@@ -90,7 +90,9 @@ void run_ccn_warp_shuffle(
     RES* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
-    dsize_t cuda_rows_per_block
+    dsize_t num_right_matrices,
+    dsize_t cuda_rows_per_block,
+    dsize_t right_matrices_per_thread
 );
 
 }
