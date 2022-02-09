@@ -71,7 +71,6 @@ __global__ void ccn_shift_per_warp(
     dsize2_t matrix_size,
     dsize2_t search_size
 ) {
-    cg::grid_group grid = cg::this_grid();
     cg::thread_block ctb = cg::this_thread_block();
     cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
 
@@ -107,7 +106,10 @@ __global__ void ccn_shift_per_warp(
     dsize_t total_items = overlap_size.area();
 
     RES sum = 0;
-    // TODO: Test against code with more divergence but simpler loop contents
+    // Simpler internal loop, as is done in simple_indexing version,
+    // leads to high thread divergence and much slower overall speed
+    // so even though this is bottlenecked by the index computations,
+    // it still runs much faster
     for (dsize_t i = warp.thread_rank(); i < total_items; i += warp.size()) {
         dsize_t overlap_row =  i / overlap_size.x;
         dsize_t overlap_row_offset = i % overlap_size.x;
@@ -129,6 +131,62 @@ __global__ void ccn_shift_per_warp(
 }
 
 template<typename T, typename RES>
+__global__ void ccn_shift_per_warp_simple_indexing(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size
+) {
+    cg::thread_block ctb = cg::this_thread_block();
+    cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
+
+    dsize_t shifts_per_block = ctb.group_dim().y;
+
+    dsize2_t warp_out_pos{
+        ctb.thread_index().y + ctb.group_index().x * shifts_per_block,
+        ctb.group_index().y
+    };
+
+    if (warp_out_pos.x >= search_size.x || warp_out_pos.y >= search_size.y) {
+        return;
+    }
+
+    dsize2_t half_search_size = (search_size - 1) / 2;
+
+    vec2<int> warp_shift = {
+        static_cast<int>(warp_out_pos.x) - static_cast<int>(half_search_size.x),
+        static_cast<int>(warp_out_pos.y) - static_cast<int>(half_search_size.y)
+    };
+
+    dsize2_t right_start(
+        max(0, -warp_shift.x),
+        max(0, -warp_shift.y)
+    );
+
+    dsize2_t right_end(
+        min(matrix_size.x - warp_shift.x, matrix_size.x),
+        min(matrix_size.y - warp_shift.y, matrix_size.y)
+    );
+
+    RES sum = 0;
+    for (dsize_t right_y = right_start.y; right_y < right_end.y; ++right_y) {
+        for (dsize_t right_x = right_start.x + warp.thread_rank(); right_x < right_end.x; right_x += warp.size()) {
+            auto left_x = right_x + warp_shift.x;
+            auto left_y = right_y + warp_shift.y;
+
+            sum += left[left_y * matrix_size.x + left_x] * right[right_y * matrix_size.x + right_x];
+        }
+    }
+
+    sum = cg::reduce(warp, sum, cg::plus<RES>());
+    if (warp.thread_rank() == 0) {
+        out[warp_out_pos.linear_idx(search_size.x)] = sum;
+    }
+}
+
+
+template<typename T, typename RES>
 void run_ccn_shift_per_warp(
     const T* __restrict__ left,
     const T* __restrict__ right,
@@ -148,6 +206,34 @@ void run_ccn_shift_per_warp(
     );
 
     ccn_shift_per_warp<<<num_blocks, num_threads>>>(
+        left,
+        right,
+        out,
+        matrix_size,
+        search_size
+    );
+}
+
+template<typename T, typename RES>
+void run_ccn_shift_per_warp_simple_indexing(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_shifts_per_block
+) {
+    if (cuda_shifts_per_block > 32) {
+        throw std::runtime_error("Too many shifts per block: "s + std::to_string(cuda_shifts_per_block) + " (max 32)");
+    }
+
+    dim3 num_threads(32, cuda_shifts_per_block);
+    dim3 num_blocks(
+        div_up(search_size.x, num_threads.y),
+        search_size.y
+    );
+
+    ccn_shift_per_warp_simple_indexing<<<num_blocks, num_threads>>>(
         left,
         right,
         out,
@@ -183,6 +269,31 @@ template void run_ccn_shift_per_warp<double, double>(
     dsize_t cuda_shifts_per_block
 );
 
+template void run_ccn_shift_per_warp_simple_indexing<int, int>(
+    const int* __restrict__ left,
+    const int* __restrict__ right,
+    int* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_shifts_per_block
+);
 
+template void run_ccn_shift_per_warp_simple_indexing<float, float>(
+    const float* __restrict__ left,
+    const float* __restrict__ right,
+    float* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_shifts_per_block
+);
+
+template void run_ccn_shift_per_warp_simple_indexing<double, double>(
+    const double* __restrict__ left,
+    const double* __restrict__ right,
+    double* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_shifts_per_block
+);
 
 }
