@@ -6,6 +6,7 @@
 #include <iostream>
 #include <fstream>
 #include <stdexcept>
+#include <string_view>
 
 // TODO: Workaround for missing header if not C++20
 #include <bit>

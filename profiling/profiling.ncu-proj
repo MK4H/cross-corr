@@ -39,6 +39,7 @@
             "path": "nai_shift_per_warp_64.ncu-rep"
         },
         {
+            "is_open": true,
             "path": "nai_shift_per_warp_128.ncu-rep"
         },
         {
@@ -59,6 +60,10 @@
         },
         {
             "path": "nai_shift_per_warp_simple_indexing_512.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_shift_per_warp_work_distribution_64.ncu-rep"
         }
     ],
     "launcher": {

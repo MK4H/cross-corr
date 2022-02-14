@@ -7,6 +7,7 @@
 #include "matrix.hpp"
 #include "helpers.cuh"
 #include "stopwatch.hpp"
+#include "row_distribution.cuh"
 
 #include "kernels.cuh"
 #include "nlohmann/json.hpp"
@@ -451,6 +452,118 @@ template<typename T, bool DEBUG, typename ALLOC>
 std::vector<std::string> naive_shift_per_warp_one_to_one<T, DEBUG, ALLOC>::labels{
     "Kernel"
 };
+
+template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
+class naive_shift_per_warp_work_distribution_one_to_one: public one_to_one<T, ALLOC> {
+public:
+    explicit naive_shift_per_warp_work_distribution_one_to_one(const json& args)
+        :one_to_one<T, ALLOC>(false, labels.size()), ref_(), target_(), result_()
+    {
+        shifts_per_block_ = args.value("shifts_per_block", 8);
+        rows_per_warp_ = args.value("rows_per_warp", 3);
+        distribution_type_ = from_string(args.value("distribution_type", "rectangle"));
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return ref_;
+    }
+
+    const data_array<T, ALLOC>& targets() const override {
+        return target_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return result_;
+    }
+
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("shifts_per_block", std::to_string(shifts_per_block_)),
+            std::make_pair("rows_per_warp", std::to_string(rows_per_warp_)),
+            std::make_pair("distribution_type", to_string(distribution_type_))
+        };
+    }
+
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
+        target_ = load_matrix_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_matrices_same_size(ref_, target_);
+    }
+
+    void prepare_impl() override {
+        result_ = data_array<T, ALLOC>{ref_.matrix_size() + target_.matrix_size() - 1, 1};
+
+        cuda_malloc(&d_ref_, ref_.size());
+        cuda_malloc(&d_target_, target_.size());
+        cuda_malloc(&d_result_, result_.size());
+    }
+
+    void transfer_impl() override {
+        cuda_memcpy_to_device(d_ref_, ref_);
+        cuda_memcpy_to_device(d_target_, target_);
+    }
+
+    void run_impl() override {
+        switch (distribution_type_) {
+            case distribution::rectangle:
+                run_kernel<rectangle_distribution>();
+                break;
+            case distribution::triangle:
+                run_kernel<triangle_distribution>();
+                break;
+        }
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(result_, d_result_);
+    }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
+    }
+
+private:
+    static std::vector<std::string> labels;
+
+    data_array<T, ALLOC> ref_;
+    data_array<T, ALLOC> target_;
+
+    data_array<T, ALLOC> result_;
+
+    T* d_ref_;
+    T* d_target_;
+    T* d_result_;
+
+    dsize_t shifts_per_block_;
+    dsize_t rows_per_warp_;
+    distribution distribution_type_;
+
+    template<typename DISTRIBUTION>
+    void run_kernel() {
+        CUDA_MEASURE(this->label_index(0),
+                     run_ccn_shift_per_warp_work_distribution<DISTRIBUTION>(
+                         d_ref_,
+                         d_target_,
+                         d_result_,
+                         target_.matrix_size(),
+                         result_.matrix_size(),
+                         shifts_per_block_,
+                         rows_per_warp_
+                     )
+        );
+
+        CUCH(cudaDeviceSynchronize());
+        CUCH(cudaGetLastError());
+    }
+};
+
+template<typename T, bool DEBUG, typename ALLOC>
+std::vector<std::string> naive_shift_per_warp_work_distribution_one_to_one<T, DEBUG, ALLOC>::labels{
+    "Kernel"
+};
+
 
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_shift_per_warp_simple_indexing_one_to_one: public one_to_one<T, ALLOC> {

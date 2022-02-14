@@ -113,7 +113,7 @@ class InternalRun(Run):
         if len(generate) == 0:
             return [cls(
                 idx,
-                base_name,
+                f"{base_name}____",
                 exe,
                 algorithm,
                 singles,

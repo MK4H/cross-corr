@@ -40,7 +40,7 @@ class Run:
         self.input_size = input_size
         self.data = data
 
-    run_result_filename_regex = re.compile("^[0-9]+-[0-9]+-(.*)(__(.*)__)?-([0-9]+_[0-9]+_[0-9]+_[0-9]+)-time.csv$")
+    run_result_filename_regex = re.compile("^[0-9]+-[0-9]+-(.*)__(.*)__-([0-9]+_[0-9]+_[0-9]+_[0-9]+)-time.csv$")
 
     def input_area(self) -> int:
         return self.input_size.area()
@@ -51,8 +51,8 @@ class Run:
         if match:
             return cls(
                 match.group(1),
-                match.group(3),
-                InputSize.from_string(match.group(4)),
+                match.group(2),
+                InputSize.from_string(match.group(3)),
                 pd.read_csv(
                     path
                 )

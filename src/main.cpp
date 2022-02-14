@@ -234,9 +234,8 @@ int validate_input_size(
     return 0;
 }
 
-
 template<typename DATA_TYPE>
-static std::unordered_map<std::string, std::function<int(
+std::unordered_map<std::string, std::function<int(
     const std::optional<std::filesystem::path>& args_path,
     const std::filesystem::path& ref_path,
     const std::filesystem::path& target_path,
@@ -246,27 +245,40 @@ static std::unordered_map<std::string, std::function<int(
     bool normalize,
     bool append_measurements,
     bool print_progress
-)>> algorithms{
-    {"cpu_one_to_one", run_measurement<cpu_one_to_one<DATA_TYPE, false>>},
-    {"cpu_one_to_many", run_measurement<cpu_one_to_many<DATA_TYPE, false>>},
-    {"cpu_n_to_mn", run_measurement<cpu_n_to_mn<DATA_TYPE, false>>},
-    {"cpu_n_to_m", run_measurement<cpu_n_to_m<DATA_TYPE, false>>},
-    {"nai_orig_one_to_one", run_measurement<naive_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"nai_orig_one_to_many", run_measurement<naive_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"nai_orig_n_to_mn", run_measurement<naive_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"nai_warp_shuffle_one_to_one", run_measurement<naive_warp_shuffle_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"nai_shift_per_warp_one_to_one", run_measurement<naive_shift_per_warp_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"nai_shift_per_warp_simple_indexing_one_to_one", run_measurement<naive_shift_per_warp_simple_indexing_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"nai_rows", run_measurement<naive_ring_buffer_row_alg<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"nai_def_block", run_measurement<naive_def_per_block<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"fft_reduced_transfer_one_to_one", run_measurement<fft_reduced_transfer_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"fft_reduced_transfer_one_to_many", run_measurement<fft_reduced_transfer_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"fft_reduced_transfer_n_to_mn", run_measurement<fft_reduced_transfer_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-    {"fft_better_n_to_m", run_measurement<fft_better_hadamard_alg_n_to_m<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>}
-};
+)>> get_algorithms() {
+    return std::unordered_map<std::string, std::function<int(
+        const std::optional<std::filesystem::path>& args_path,
+        const std::filesystem::path& ref_path,
+        const std::filesystem::path& target_path,
+        const std::filesystem::path& out_path,
+        const std::filesystem::path& measurements_path,
+        const po::variable_value& validate,
+        bool normalize,
+        bool append_measurements,
+        bool print_progress
+    )>>{
+        {"cpu_one_to_one", run_measurement<cpu_one_to_one<DATA_TYPE, false>>},
+        {"cpu_one_to_many", run_measurement<cpu_one_to_many<DATA_TYPE, false>>},
+        {"cpu_n_to_mn", run_measurement<cpu_n_to_mn<DATA_TYPE, false>>},
+        {"cpu_n_to_m", run_measurement<cpu_n_to_m<DATA_TYPE, false>>},
+        {"nai_orig_one_to_one", run_measurement<naive_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"nai_orig_one_to_many", run_measurement<naive_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"nai_orig_n_to_mn", run_measurement<naive_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"nai_warp_shuffle_one_to_one", run_measurement<naive_warp_shuffle_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_warp_one_to_one", run_measurement<naive_shift_per_warp_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_warp_simple_indexing_one_to_one", run_measurement<naive_shift_per_warp_simple_indexing_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_warp_work_distribution_one_to_one", run_measurement<naive_shift_per_warp_work_distribution_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"nai_rows", run_measurement<naive_ring_buffer_row_alg<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"nai_def_block", run_measurement<naive_def_per_block<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"fft_reduced_transfer_one_to_one", run_measurement<fft_reduced_transfer_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"fft_reduced_transfer_one_to_many", run_measurement<fft_reduced_transfer_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"fft_reduced_transfer_n_to_mn", run_measurement<fft_reduced_transfer_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"fft_better_n_to_m", run_measurement<fft_better_hadamard_alg_n_to_m<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>}
+    };
+}
 
 template<typename DATA_TYPE>
 int run(
@@ -281,9 +293,9 @@ int run(
     bool append_measurements,
     bool print_progress
 ) {
-
-    auto fnc = algorithms<DATA_TYPE>.find(alg_name);
-    if (fnc == algorithms<DATA_TYPE>.end()) {
+    auto algs = get_algorithms<DATA_TYPE>();
+    auto fnc = algs.find(alg_name);
+    if (fnc == get_algorithms<DATA_TYPE>().end()) {
         throw std::runtime_error("Invalid algorithm specified \n"s + alg_name + "\"");
     }
     return fnc->second(args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append_measurements, print_progress);
@@ -440,8 +452,9 @@ int main(int argc, char **argv) {
 
 
             // TODO: Change if there can be different algorithms for float and double
-            if (algorithms<float>.find(alg_name) == algorithms<float>.end()) {
-                std::cerr << "Unknown algorithm \"" << alg_name << "\", expected one of " << get_sorted_keys(algorithms<float>) << std::endl;
+            auto algs = get_algorithms<float>();
+            if (algs.find(alg_name) == algs.end()) {
+                std::cerr << "Unknown algorithm \"" << alg_name << "\", expected one of " << get_sorted_keys(algs) << std::endl;
                 print_help(std::cerr, argv[0], all_options);
                 return 1;
             }
@@ -476,7 +489,7 @@ int main(int argc, char **argv) {
 
             validate<double>(template_data, validate_data, normalize, csv);
         } else if (cmd == "list") {
-            auto algs = get_sorted_keys(algorithms<float>);
+            auto algs = get_sorted_keys(get_algorithms<float>());
             for (auto&& alg: algs) {
                 std::cout << alg << "\n";
             }

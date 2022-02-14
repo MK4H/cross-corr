@@ -113,4 +113,15 @@ void run_ccn_shift_per_warp_simple_indexing(
     dsize_t cuda_shifts_per_block
 );
 
+template<typename DIST, typename T, typename RES>
+void run_ccn_shift_per_warp_work_distribution(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_shifts_per_block,
+    dsize_t max_rows_per_warp
+);
+
 }

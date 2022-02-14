@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <string>
+#include <optional>
 
 #include "validate.hpp"
 #include "csv.hpp"
