@@ -6,6 +6,7 @@
 #include <cooperative_groups/reduce.h>
 
 #include <stdexcept>
+#include <cassert>
 
 #include "types.cuh"
 #include "helpers.cuh"
@@ -62,9 +63,155 @@ __device__ T load_with_bounds_check(const T* source, dsize2_t idx, dsize2_t size
     return load_with_bounds_check(source, idx, size.x, size.y, size);
 }
 
+/**
+ * Arguments for the compute_matrices function.
+ * As we need to write many calls for different constant values of NUM_RIGHTS which
+ * all share the same argument values, we want to have each call as short as possible
+ * This way, we can create the arguments with a single call and then use it in any of the calls in the switch statement
+ *
+ * @tparam T
+ * @tparam RES
+ */
+template<typename T, typename RES>
+struct compute_args {
+    const T* __restrict__ left;
+    const T* __restrict__ right;
+    RES* __restrict__ out;
+    dsize2_t warp_right_start;
+    dsize2_t warp_right_end;
+    dsize2_t warp_min_shift;
+    dsize2_t output_pos;
+    dsize2_t matrix_size;
+    dsize2_t search_size;
 
+    __device__ compute_args(
+        const T* __restrict__ left,
+        const T* __restrict__ right,
+        RES* __restrict__ out,
+        dsize2_t warp_right_start,
+        dsize2_t warp_right_end,
+        dsize2_t warp_min_shift,
+        dsize2_t output_pos,
+        dsize2_t matrix_size,
+        dsize2_t search_size
+    )   : left(left), right(right), out(out), warp_right_start(warp_right_start),
+    warp_right_end(warp_right_end), warp_min_shift(warp_min_shift), output_pos(output_pos),
+    matrix_size(matrix_size), search_size(search_size)
+    {
 
+    }
+};
 
+template<typename T, typename RES>
+__device__ compute_args<T, RES> create_args(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t warp_right_start,
+    dsize2_t warp_right_end,
+    dsize2_t warp_min_shift,
+    dsize2_t output_pos,
+    dsize2_t matrix_size,
+    dsize2_t search_size
+) {
+    return compute_args<T, RES>(
+        left,
+        right,
+        out,
+        warp_right_start,
+        warp_right_end,
+        warp_min_shift,
+        output_pos,
+        matrix_size,
+        search_size
+    );
+}
+
+template<dsize_t NUM_RIGHTS, dsize_t WARP_SIZE, typename T, typename RES>
+__device__ void compute_matrices(
+    cg::thread_block_tile<WARP_SIZE> warp,
+    compute_args<T, RES> args
+) {
+    // Compute the given shift for num_rights right matrices
+    RES sum[NUM_RIGHTS];
+    for (dsize_t i = 0; i < NUM_RIGHTS; ++i) {
+        sum[i] = 0;
+    }
+
+    for (dsize_t warp_y_right = args.warp_right_start.y; warp_y_right < args.warp_right_end.y; warp_y_right += 1) {
+        // In y axis, both max and min shift are equal in the current implementation
+        int warp_y_left = static_cast<int>(warp_y_right) + args.warp_min_shift.y;
+
+        const dsize_t right_row_offset = warp_y_right * args.matrix_size.x;
+        const T* left_row = args.left + warp_y_left * args.matrix_size.x;
+
+        int warp_x_left = static_cast<int>(args.warp_right_start.x) + args.warp_min_shift.x;
+
+        // Preload the first values from right matrix
+        T thread_left_bottom = load_with_bounds_check(
+                left_row,
+                warp_x_left + warp.thread_rank(),
+                args.matrix_size.x
+        );
+
+        for (
+                dsize_t warp_x_right = args.warp_right_start.x;
+                warp_x_right < args.warp_right_end.x;
+                warp_x_right += warp.size(), warp_x_left += warp.size()
+                ) {
+
+            // Load next warp_size values
+            // Load 0 if out of bounds
+
+            // Right index will always be greater than 0 as we only
+            // iterate over part of the matrix
+            dsize_t right_idx = warp_x_right + warp.thread_rank();
+
+            // Left index might be out of bounds even below 0, depending on the shift
+            // It is also reading warp.size() next values, as we have warp.size() values already loaded
+            // from the initialization before the for loop
+            int left_idx = warp_x_left + warp.thread_rank() + warp.size();
+
+            // Load values from num_rights right matrices
+            T thread_right[NUM_RIGHTS];
+            for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
+                const T* matrix_start = args.right + r * args.matrix_size.area();
+                const T* row = matrix_start + right_row_offset;
+                // TODO: Either do bounds check or limit the for loop below
+                thread_right[r] = load_with_bounds_check(row, right_idx, args.matrix_size.x);
+            }
+
+            T thread_left_top = load_with_bounds_check(left_row, left_idx, args.matrix_size.x);
+
+            for (dsize_t i = 0; i < warp.size(); ++i) {
+                for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
+                    // Broadcast
+                    auto right_val = warp.shfl(thread_right[r], i);
+
+                    // No need to mask, if either values is out of bounds the value will be 0
+                    sum[r] += thread_left_bottom * right_val;
+                }
+
+                // Shuffle does modulo srcLane automatically
+                // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
+                //  making it behave as one continuous buffer
+                thread_left_bottom = warp.shfl(warp.thread_rank() != 0 ? thread_left_bottom : thread_left_top,
+                                               warp.thread_rank() + 1);
+                thread_left_top = warp.shfl_down(thread_left_top, 1);
+            }
+        }
+    }
+
+    if (args.output_pos.x < args.search_size.x && args.output_pos.y < args.search_size.y) {
+        auto output_offset = args.output_pos.linear_idx(args.search_size.x);
+        for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
+            T* matrix = args.out + r * args.search_size.area();
+            matrix[output_offset] = sum[r];
+        }
+    }
+}
+
+constexpr dsize_t max_num_right_matrices = 8;
 /**
  * This kernel first computes the range which should be
  * computed by the current warp in the left and right matrices
@@ -76,7 +223,9 @@ __global__ void ccn_warp_shuffle(
     const T* __restrict__ right,
     RES* __restrict__ out,
     dsize2_t matrix_size,
-    dsize2_t search_size
+    dsize2_t search_size,
+    dsize_t num_right_matrices,
+    dsize_t right_matrices_per_thread
 ) {
     // Initialize by loading a warp worth of data from left matrix
     // as we will be iterating over the left matrix
@@ -102,9 +251,19 @@ __global__ void ccn_warp_shuffle(
     cg::thread_block ctb = cg::this_thread_block();
     cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
 
+    // Index on the x axis in the strip of output matrices
+    dsize_t warp_x_index = ctb.group_index().x * ctb.group_dim().x;
+    // Each thread computes the same shift in right_matrices_per_thread consecutive matrices
+    // This index tells us which group is to be computed by the current thread
+    dsize_t matrix_group_idx = warp_x_index / search_size.x;
+    // Offset in the given output matrix on the x axis
+    dsize_t output_x_offset = warp_x_index % search_size.x;
+
+    // Index of the first matrix in the group processed by the current thread
+    dsize_t matrix_group_start_idx = matrix_group_idx * right_matrices_per_thread;
     // All warps of given block start at the same x, but each work on different row of output
     dsize2_t thread0_out_pos = dsize2_t {
-        ctb.group_index().x * ctb.group_dim().x,
+        output_x_offset,
         ctb.group_index().y * ctb.group_dim().y + ctb.thread_index().y
     };
     dsize2_t last_warp_thread_out_pos = thread0_out_pos +
@@ -151,63 +310,40 @@ __global__ void ccn_warp_shuffle(
     dsize_t warp_y_right_start = max(-warp_min_shift.y, 0);
     dsize_t warp_y_right_end = min(matrix_size.y - warp_max_shift.y, matrix_size.y);
 
-    RES sum = 0;
-    for (dsize_t warp_y_right = warp_y_right_start; warp_y_right < warp_y_right_end; warp_y_right += 1) {
-        // In y axis, both max and min shift are equal in the current implementation
-        int warp_y_left = static_cast<int>(warp_y_right) + warp_min_shift.y;
+    dsize_t thread_num_right_matrices = min(num_right_matrices - matrix_group_start_idx, right_matrices_per_thread);
 
-        const T* right_row = right + warp_y_right * matrix_size.x;
-        const T* left_row = left + warp_y_left * matrix_size.x;
 
-        int warp_x_left = static_cast<int>(warp_x_right_start) + warp_min_shift.x;
+    auto args = create_args(
+        left,
+        right + matrix_group_start_idx * matrix_size.area(),
+        out + matrix_group_start_idx * search_size.area(),
+        dsize2_t{warp_x_right_start, warp_y_right_start},
+        dsize2_t{warp_x_right_end, warp_y_right_end},
+        warp_min_shift,
+        output_pos,
+        matrix_size,
+        search_size
+    );
 
-        // Preload the first values from right matrix
-        T thread_left_bottom = load_with_bounds_check(
-                left_row,
-                warp_x_left + warp.thread_rank(),
-                matrix_size.x
-        );
-
-        for (
-            dsize_t warp_x_right = warp_x_right_start;
-            warp_x_right < warp_x_right_end;
-            warp_x_right += warp.size(), warp_x_left += warp.size()
-            ) {
-
-            // Load next warp_size values
-            // Load 0 if out of bounds
-
-            // Right index will always be greater than 0 as we only
-            // iterate over part of the matrix
-            dsize_t right_idx = warp_x_right + warp.thread_rank();
-
-            // Left index might be out of bounds even below 0, depending on the shift
-            // It is also reading warp.size() next values, as we have warp.size() values already loaded
-            // from the initialization before the for loop
-            int left_idx = warp_x_left + warp.thread_rank() + warp.size();
-            // TODO: Either do bounds check or limit the for loop below
-            T thread_right = load_with_bounds_check(right_row, right_idx, matrix_size.x);
-            T thread_left_top = load_with_bounds_check(left_row, left_idx, matrix_size.x);
-
-            for (dsize_t i = 0; i < warp.size(); ++i) {
-                // Broadcast
-                auto right_val = warp.shfl(thread_right, i);
-
-                // No need to mask, if either values is out of bounds the value will be 0
-                sum += thread_left_bottom * right_val;
-
-                // Shuffle does modulo srcLane automatically
-                // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
-                //  making it behave as one continuous buffer
-                thread_left_bottom = warp.shfl(warp.thread_rank() != 0 ? thread_left_bottom : thread_left_top,
-                                               warp.thread_rank() + 1);
-                thread_left_top = warp.shfl_down(thread_left_top, 1);
-            }
-        }
-    }
-
-    if (output_pos.x < search_size.x && output_pos.y < search_size.y) {
-        out[output_pos.linear_idx(search_size.x)] = sum;
+    switch (min(num_right_matrices - matrix_group_start_idx, max_num_right_matrices)) {
+        case 1: compute_matrices<1>(warp, args);
+            break;
+        case 2: compute_matrices<2>(warp, args);
+            break;
+        case 3: compute_matrices<3>(warp, args);
+            break;
+        case 4: compute_matrices<4>(warp, args);
+            break;
+        case 5: compute_matrices<5>(warp, args);
+            break;
+        case 6: compute_matrices<6>(warp, args);
+            break;
+        case 7: compute_matrices<7>(warp, args);
+            break;
+        case max_num_right_matrices: compute_matrices<max_num_right_matrices>(warp, args);
+            break;
+        default:
+            assert(false);
     }
 }
 
@@ -218,15 +354,26 @@ void run_ccn_warp_shuffle(
     RES* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
-    dsize_t cuda_rows_per_block
+    dsize_t num_right_matrices,
+    dsize_t cuda_rows_per_block,
+    dsize_t right_matrices_per_thread
 ) {
     if (cuda_rows_per_block > 32) {
         throw std::runtime_error("Too many rows per block: "s + std::to_string(cuda_rows_per_block) + " (max 32)");
     }
 
+    if (right_matrices_per_thread > max_num_right_matrices) {
+        throw std::runtime_error("Too many right matrices per thread: "s +
+            std::to_string(right_matrices_per_thread) +
+            " (max "s +
+            std::to_string(max_num_right_matrices) +
+            ")"s
+        );
+    }
+
     dim3 num_threads(32, cuda_rows_per_block);
     dim3 num_blocks(
-            div_up(search_size.x, num_threads.x),
+            div_up(search_size.x * div_up(num_right_matrices, right_matrices_per_thread), num_threads.x),
             div_up(search_size.y, num_threads.y)
     );
 
@@ -235,7 +382,9 @@ void run_ccn_warp_shuffle(
             right,
             out,
             matrix_size,
-            search_size
+            search_size,
+            num_right_matrices,
+            right_matrices_per_thread
     );
 }
 
@@ -245,7 +394,9 @@ template void run_ccn_warp_shuffle<int, int>(
         int* __restrict__ out,
         dsize2_t matrix_size,
         dsize2_t search_size,
-        dsize_t cuda_rows_per_block
+        dsize_t num_right_matrices,
+        dsize_t cuda_rows_per_block,
+        dsize_t right_matrices_per_thread
 );
 
 template void run_ccn_warp_shuffle<float, float>(
@@ -254,7 +405,9 @@ template void run_ccn_warp_shuffle<float, float>(
         float* __restrict__ out,
         dsize2_t matrix_size,
         dsize2_t search_size,
-        dsize_t cuda_rows_per_block
+        dsize_t num_right_matrices,
+        dsize_t cuda_rows_per_block,
+        dsize_t right_matrices_per_thread
 );
 
 template void run_ccn_warp_shuffle<double, double>(
@@ -263,7 +416,9 @@ template void run_ccn_warp_shuffle<double, double>(
         double* __restrict__ out,
         dsize2_t matrix_size,
         dsize2_t search_size,
-        dsize_t cuda_rows_per_block
+        dsize_t num_right_matrices,
+        dsize_t cuda_rows_per_block,
+        dsize_t right_matrices_per_thread
 );
 
 }
