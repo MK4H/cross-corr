@@ -126,4 +126,17 @@ void run_ccn_shift_per_warp_work_distribution(
     dsize_t max_rows_per_warp
 );
 
+template<typename DIST, typename T, typename RES>
+void run_ccn_warp_shuffle_work_distribution(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t num_right_matrices,
+    dsize_t cuda_rows_per_block,
+    dsize_t right_matrices_per_thread,
+    dsize_t max_rows_per_thread
+);
+
 }

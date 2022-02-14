@@ -272,7 +272,7 @@ public:
     explicit naive_warp_shuffle_one_to_one(const json& args)
         :one_to_one<T, ALLOC>(false, labels.size()), ref_(), target_(), result_()
     {
-        rows_per_block_ = args.value("rows_per_block", 8);
+        block_y_size_ = args.value("block_y_size", 8);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -289,7 +289,7 @@ public:
 
     std::vector<std::pair<std::string, std::string>> additional_properties() const override {
         return std::vector<std::pair<std::string, std::string>>{
-                std::make_pair("rows_per_block", std::to_string(rows_per_block_))
+                std::make_pair("block_y_size", std::to_string(block_y_size_))
         };
     }
 
@@ -323,7 +323,7 @@ protected:
                              target_.matrix_size(),
                              result_.matrix_size(),
                              1,
-                             rows_per_block_,
+                             block_y_size_,
                              1
                      )
         );
@@ -353,7 +353,7 @@ private:
     T* d_target_;
     T* d_result_;
 
-    dsize_t rows_per_block_;
+    dsize_t block_y_size_;
 };
 
 template<typename T, bool DEBUG, typename ALLOC>
@@ -361,6 +361,119 @@ std::vector<std::string> naive_warp_shuffle_one_to_one<T, DEBUG, ALLOC>::labels{
         "Kernel"
 };
 
+template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
+class naive_warp_shuffle_work_distribution_one_to_one: public one_to_one<T, ALLOC> {
+public:
+    explicit naive_warp_shuffle_work_distribution_one_to_one(const json& args)
+        :one_to_one<T, ALLOC>(false, labels.size()), ref_(), target_(), result_()
+    {
+        block_y_size_ = args.value("block_y_size", 8);
+        rows_per_thread_ = args.value("rows_per_thread", 10);
+        distribution_type_ = from_string(args.value("distribution_type", "rectangle"));
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return ref_;
+    }
+
+    const data_array<T, ALLOC>& targets() const override {
+        return target_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return result_;
+    }
+
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("block_y_size", std::to_string(block_y_size_)),
+            std::make_pair("rows_per_thread", std::to_string(rows_per_thread_)),
+            std::make_pair("distribution_type", to_string(distribution_type_))
+        };
+    }
+
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
+        target_ = load_matrix_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_matrices_same_size(ref_, target_);
+    }
+
+    void prepare_impl() override {
+        result_ = data_array<T, ALLOC>{ref_.matrix_size() + target_.matrix_size() - 1, 1};
+
+        cuda_malloc(&d_ref_, ref_.size());
+        cuda_malloc(&d_target_, target_.size());
+        cuda_malloc(&d_result_, result_.size());
+    }
+
+    void transfer_impl() {
+        cuda_memcpy_to_device(d_ref_, ref_);
+        cuda_memcpy_to_device(d_target_, target_);
+    }
+
+    void run_impl() override {
+        switch (distribution_type_) {
+            case distribution::rectangle:
+                run_kernel<rectangle_distribution>();
+                break;
+            case distribution::triangle:
+                run_kernel<triangle_distribution>();
+                break;
+        }
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(result_, d_result_);
+    }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
+    }
+
+private:
+
+    static std::vector<std::string> labels;
+
+    data_array<T, ALLOC> ref_;
+    data_array<T, ALLOC> target_;
+
+    data_array<T, ALLOC> result_;
+
+    T* d_ref_;
+    T* d_target_;
+    T* d_result_;
+
+    dsize_t block_y_size_;
+    dsize_t rows_per_thread_;
+    distribution distribution_type_;
+
+    template<typename DISTRIBUTION>
+    void run_kernel() {
+        CUDA_MEASURE(this->label_index(0),
+                     run_ccn_warp_shuffle_work_distribution<DISTRIBUTION>(
+                         d_ref_,
+                         d_target_,
+                         d_result_,
+                         target_.matrix_size(),
+                         result_.matrix_size(),
+                         1,
+                         block_y_size_,
+                         1,
+                         rows_per_thread_
+                     )
+        );
+
+        CUCH(cudaDeviceSynchronize());
+        CUCH(cudaGetLastError());
+    }
+};
+
+template<typename T, bool DEBUG, typename ALLOC>
+std::vector<std::string> naive_warp_shuffle_work_distribution_one_to_one<T, DEBUG, ALLOC>::labels{
+    "Kernel"
+};
 
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class naive_shift_per_warp_one_to_one: public one_to_one<T, ALLOC> {
