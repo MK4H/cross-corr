@@ -375,38 +375,6 @@ __global__ void ccn_shift_per_warp_simple_indexing(
 //
 //    dsize_t warp_row_size = warp_right_end_offset - warp_right_start_offset;
 //
-////    if (warp.thread_rank() == 0) {
-////        printf("Block: [%u, %u], Warp: %u, Block min shift: [%d, %d], Block max shift: [%d, %d], Block right start: [%u, %u], Block right end: [%u, %u]\n",
-////               ctb.group_index().x,
-////               ctb.group_index().y,
-////               warp.meta_group_rank(),
-////               block_min_shift.x,
-////               block_min_shift.y,
-////               block_max_shift.x,
-////               block_max_shift.y,
-////               block_right_start.x,
-////               block_right_start.y,
-////               block_right_end.x,
-////               block_right_end.y);
-////    }
-////    return;
-//
-////    if (warp.thread_rank() == 0) {
-////        printf("Block: [%u, %u], Warp: %u, Warp shift: [%d, %d], Warp right start: [%u, %u], Warp right end: [%u, %u], Warp row size: %u, Warp shared_mem slice: [%u, %u)\n",
-////               ctb.group_index().x,
-////               ctb.group_index().y,
-////               warp.meta_group_rank(),
-////               warp_shift.x,
-////               warp_shift.y,
-////               warp_right_start.x,
-////               warp_right_start.y,
-////               warp_right_end.x,
-////               warp_right_end.y,
-////               warp_row_size,
-////               warp_right_start_offset,
-////               warp_right_end_offset);
-////    }
-////    return;
 //
 //    RES sum = 0;
 //    for (dsize_t loaded_row = block_right_start.y; loaded_row < block_right_end.y; loaded_row += rows_per_load) {
@@ -517,22 +485,6 @@ __device__ void compute_from_buffer(
     int warp_right_end_offset = warp_right_end_row * static_cast<int>(row_size);
     int buffer_offset = buffer_row_shift * static_cast<int>(row_size);
 
-    if (cg::this_thread_block().group_index().x == 0 && cg::this_thread_block().group_index().y == 1 && warp.meta_group_rank() == 0 && warp.thread_rank() == 0) {
-        printf("Block: [%u, %u], Warp: %u, Warp y shift: %d, Left buffer start row: %u, Right buffer start row: %u, Warp right buffer start row: %u, Warp right buffer end row: %u, Buffer row shift: %d, Warp right start row: %d, Warp right end row: %d\n",
-               cg::this_thread_block().group_index().x,
-               cg::this_thread_block().group_index().y,
-               warp.meta_group_rank(),
-               warp_y_shift,
-               left_buffer_start_row,
-               right_buffer_start_row,
-               warp_right_buffer_start_row,
-               warp_right_buffer_end_row,
-               buffer_row_shift,
-               warp_right_start_row,
-               warp_right_end_row
-        );
-    }
-
     for (
         int right_idx = warp_right_start_offset + warp.thread_rank();
         right_idx < warp_right_end_offset;
@@ -612,18 +564,6 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
     dsize_t warp_right_start_row = max(0, -warp_y_shift);
     dsize_t warp_right_end_row = min(matrix_size.y - warp_y_shift, matrix_size.y);
 
-//    if (warp.thread_rank() == 0) {
-//        printf("Block: [%u, %u], Warp: %u, Warp y shift: %d, Warp right start row: %u, Warp right end row: %u\n",
-//               ctb.group_index().x,
-//               ctb.group_index().y,
-//               warp.meta_group_rank(),
-//               warp_y_shift,
-//               warp_right_start_row,
-//               warp_right_end_row
-//        );
-//    }
-//    return;
-
     T* shared = shared_memory_proxy<T>();
     shared_mem_buffer<T> left_bottom_s = shared_mem_buffer<T>::allocate(&shared, shared_mem_row_size * shared_mem_rows);
     shared_mem_buffer<T> left_top_s = shared_mem_buffer<T>::allocate(&shared, shared_mem_row_size * shared_mem_rows);
@@ -668,8 +608,6 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
         // Size of the last load, for preload includes the prefixed zeroes when preload offset is not 0
         dsize_t last_load_size = min(shared_mem_rows, matrix_size.y - left_buffer_preload_start_row);
 
-
-
         // Preload first values into the bottom buffer
         // TODO: Try strided_warps and measure the difference
         //  it should be faster for small data
@@ -682,29 +620,6 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
             preload_offset_rows * row_size
         );
 
-//        if (ctb.thread_rank() == 0) {
-//            printf("Block: [%u, %u], Block x shift: %d, Block y shift: [%d, %d], Left preload start: [%u, %u], Row size: %u, Stride: %u, Load size: %u\n",
-//                   ctb.group_index().x,
-//                   ctb.group_index().y,
-//                   block_x_shift,
-//                   block_min_y_shift,
-//                   block_max_y_shift,
-//                   left_preload_start.x,
-//                   left_preload_start.y,
-//                   row_size,
-//                   stride,
-//                   last_load_size
-//            );
-//
-//            for (auto i = 0; i < last_load_size * row_size + 1; ++i) {
-//                printf("Block: [%u, %u], left[%d] == %f\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       i,
-//                       left_bottom_s[i]);
-//            }
-//        }
-//        return;
         int left_buffer_start_row = left_buffer_preload_start_row;
         // TODO: Unroll into three loops, start-up, core, finish
         //  where core can get rid of some of the range checks and run faster
@@ -750,85 +665,8 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
 
             ctb.sync();
 
-//            if (ctb.group_index().x == 0 && ctb.group_index().y == 10 / shifts_per_block  && ctb.thread_rank() == 0) {
-//                printf("Block: [%u, %u], Left preload start: [%u, %u], Row size: %u, Preload size: %u, Stride: %u\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       left_preload_start.x,
-//                       left_preload_start.y,
-//                       row_size,
-//                       last_load_size,
-//                       stride
-//                );
-//
-//                printf("Block: [%u, %u], Left load start: [%u, %u], Row size: %u, Load size: %u, Stride: %u\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       left_load_start.x,
-//                       left_load_start.y,
-//                       row_size,
-//                       left_load_size,
-//                       stride
-//                );
-//                printf("Block: [%u, %u], Right load start: [%u, %u], Row size: %u, Load size: %u, Stride: %u\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       right_load_start.x,
-//                       right_load_start.y,
-//                       row_size,
-//                       right_load_size,
-//                       stride
-//                );
-//
-//                for (auto i = 0; i < last_load_size * row_size + 1; ++i) {
-//                    printf("Block: [%u, %u], left_bottom_s[%d] == %f\n",
-//                           ctb.group_index().x,
-//                           ctb.group_index().y,
-//                           i,
-//                           left_bottom_s[i]);
-//                }
-//
-//                for (auto i = 0; i < left_load_size * row_size + 1; ++i) {
-//                    printf("Block: [%u, %u], left_top_s[%d] == %f\n",
-//                           ctb.group_index().x,
-//                           ctb.group_index().y,
-//                           i,
-//                           left_top_s[i]);
-//                }
-//
-//
-//
-//                for (auto i = 0; i < right_load_size * row_size + 1; ++i) {
-//                    printf("Block: [%u, %u], right_s[%d] == %f\n",
-//                           ctb.group_index().x,
-//                           ctb.group_index().y,
-//                           i,
-//                           right_s[i]);
-//                }
-//            }
-
             dsize_t warp_right_buffer_start_row = max(warp_right_start_row, right_buffer_start_row) - right_buffer_start_row;
             dsize_t warp_right_buffer_end_row = min(warp_right_end_row, right_buffer_start_row + right_load_size) - right_buffer_start_row;
-
-            auto tmp = cg::reduce(warp, sum, cg::plus<RES>());
-            if (ctb.group_index().x == 0 && ctb.group_index().y == 8 / shifts_per_block && warp.meta_group_rank() == 8 % shifts_per_block && warp.thread_rank() == 0) {
-                printf("Block: [%u, %u], Warp: %u, Left buffer start row: %u, Right buffer start row: %u, Row size: %u, Warp right start row: %u Warp right end row: %u, Warp right buffer start row: %u Warp right buffer end row: %u, Right load size: %u, Last load size: %u, Warp y shift: %d, Sum: %f\n",
-                       ctb.group_index().x,
-                       ctb.group_index().y,
-                       warp.meta_group_rank(),
-                       left_buffer_start_row,
-                       right_buffer_start_row,
-                       row_size,
-                       warp_right_start_row,
-                       warp_right_end_row,
-                       warp_right_buffer_start_row,
-                       warp_right_buffer_end_row,
-                       right_load_size,
-                       last_load_size,
-                       warp_y_shift,
-                       tmp
-                );
-            }
 
             compute_from_buffer(
                 warp,
@@ -858,16 +696,6 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
                 sum
             );
 
-//            tmp = cg::reduce(warp, sum, cg::plus<RES>());
-//            if (ctb.group_index().x == 0 && ctb.group_index().y == 8 / shifts_per_block && warp.meta_group_rank() == 8 % shifts_per_block && warp.thread_rank() == 0) {
-//                printf("Block: [%u, %u], Warp: %u, Sum: %f\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       warp.meta_group_rank(),
-//                       tmp
-//                );
-//            }
-
             swap(left_bottom_s, left_top_s);
             last_load_size = left_load_size;
 
@@ -875,21 +703,10 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
         }
     }
 
-
     dsize2_t warp_out_pos{
         ctb.group_index().x,
         ctb.group_index().y * shifts_per_block + warp.meta_group_rank()
     };
-
-//    if (warp.thread_rank() == 0) {
-//        printf("Block: [%u, %u], Warp: %u, Warp out pos: [%u, %u]\n",
-//               ctb.group_index().x,
-//               ctb.group_index().y,
-//               warp.meta_group_rank(),
-//               warp_out_pos.x,
-//               warp_out_pos.y
-//        );
-//    }
 
     sum = cg::reduce(warp, sum, cg::plus<RES>());
     if (warp.thread_rank() == 0) {
