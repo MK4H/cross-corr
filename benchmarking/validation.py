@@ -60,9 +60,10 @@ def validate_from_pregenerated(
 def validate_result_stats(
     limit: float,
     files: List[Path],
-    groups: List[Path]
+    groups: List[Path],
+    confirm: bool
 ):
-    group_files = [group.glob("*_output_stats.csv") for group in groups]
+    group_files = [group.glob("*-output_stats.csv") for group in groups]
     files.extend(itertools.chain.from_iterable(group_files))
 
     for file in files:
@@ -72,7 +73,9 @@ def validate_result_stats(
 
         max = data["Max"].max()
         if abs(max) > limit:
-            print(f"{str(file.absolute())}: Value {max} out of bounds (limit {limit})")
+            print(f"FAIL[{str(file.absolute())}]: Value {max} out of bounds (limit {limit})")
+        elif confirm:
+            print(f"OK[{str(file.absolute())}]: Value {max}")
 
 
 def _validate_from_inputs(args: argparse.Namespace):
@@ -111,6 +114,7 @@ def _validate_result_stats(args: argparse.Namespace):
         args.limit,
         args.files,
         args.groups,
+        args.confirm
     )
 
 
@@ -169,6 +173,10 @@ def validate_from_pregenerated_arguments(parser: argparse.ArgumentParser):
 
 
 def validate_stats_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument("-c", "--confirm",
+                        action="store_true",
+                        help="Print confirmation for each valid benchmark"
+                        )
     parser.add_argument("-g", "--groups",
                         nargs="+",
                         type=Path,

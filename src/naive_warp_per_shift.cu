@@ -494,10 +494,6 @@ __device__ void compute_from_buffer(
     }
 }
 
-// TODO: Instead of the same block containing waarps computing shifts
-//  in the same row, have it contain shifts from consecutive rows
-//  this way we prevent bank conflicts, as all access will be without any stride
-//  just for most likely no cost at all as currently we are loading additional columns
 /**
  * In this implementation, the warps in the given block
  * compute the same shifts on the x axis, but on consecutive rows. This allows for
@@ -505,7 +501,7 @@ __device__ void compute_from_buffer(
  * with warps in the same block computed shifts with the same y axis does not lead
  * to bank conflicts.
  *
- * We
+ * TODO: This does not work with shared_mem_rows < shift_per_block
  *
  *
  * @tparam T
