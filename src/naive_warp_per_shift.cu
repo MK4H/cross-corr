@@ -643,7 +643,9 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
     // We just need to handle this when preloading, after that everything should work as intended
     // as we only touch the left rows corresponding to the right rows, so nothing should touch then
     // negative rows
-    int left_buffer_start_row = static_cast<int>(block_right_start.y) + block_min_y_shift;
+    int left_buffer_preload_start_row = static_cast<int>(block_right_start.y) + block_min_y_shift;
+    dsize_t left_src_preload_start_row = left_buffer_preload_start_row >= 0 ? left_buffer_preload_start_row : 0;
+    dsize_t preload_offset_rows = left_buffer_preload_start_row >= 0 ? 0 : -left_buffer_preload_start_row;
 
     RES sum = 0;
     for (
@@ -657,16 +659,14 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
         // This should always be inside the left matrix due to bound checking when computing block_right_start
         dsize_t block_left_x_start = iter_block_right_start_x + block_x_shift;
 
-        dsize_t left_src_start_row = left_buffer_start_row >= 0 ? left_buffer_start_row : 0;
-        dsize_t preload_offset_rows = left_buffer_start_row >= 0 ? 0 : -left_buffer_start_row;
         // This needs to be bound checked explicitly as block_right_start depends on the block_max_shift,
         // so block_min_shift might be outside the left matrix for first few rows of right matrix
         dsize2_t left_preload_start(
             block_left_x_start,
-            left_src_start_row
+            left_src_preload_start_row
         );
         // Size of the last load, for preload includes the prefixed zeroes when preload offset is not 0
-        dsize_t last_load_size = min(shared_mem_rows, matrix_size.y - left_buffer_start_row);
+        dsize_t last_load_size = min(shared_mem_rows, matrix_size.y - left_buffer_preload_start_row);
 
 
 
@@ -705,7 +705,7 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
 //            }
 //        }
 //        return;
-
+        int left_buffer_start_row = left_buffer_preload_start_row;
         // TODO: Unroll into three loops, start-up, core, finish
         //  where core can get rid of some of the range checks and run faster
         for (
