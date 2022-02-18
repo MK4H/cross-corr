@@ -5,11 +5,10 @@
 #include <cooperative_groups/memcpy_async.h>
 #include <cooperative_groups/reduce.h>
 
-#include "shared_mem.cuh"
 #include "types.cuh"
-#include "matrix.cuh"
-#include "clamps.cuh"
 #include "helpers.cuh"
+
+namespace cg = cooperative_groups;
 
 namespace cross {
 

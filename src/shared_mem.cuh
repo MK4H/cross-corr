@@ -36,6 +36,22 @@ public:
 
     }
 
+    __device__ shared_mem_buffer(shared_mem_buffer<T>&& r) noexcept
+        :data_(r.data_), size_(r.size_)
+    {
+        r.data_ = nullptr;
+        r.size_ = 0;
+    }
+
+    __device__ shared_mem_buffer<T>& operator =(shared_mem_buffer<T>&& r) noexcept
+    {
+        this->data_ = r.data_;
+        this->size_ = r.size_;
+        r.data_ = nullptr;
+        r.size_ = 0;
+        return *this;
+    }
+
     __device__ static shared_mem_buffer<T> allocate(T** shared, dsize_t size) {
         T* data = *shared;
         *shared += size;
@@ -64,36 +80,105 @@ public:
     //     return copy_size;
     // }
 
-    __device__ size_type load_continuous(cg::thread_block ctb, const T* src, dsize_t size, dsize_t offset = 0) {
-        return load_warp_continuous_impl(ctb, src, size, offset);
+    __device__ size_type load_continuous_chunk_continuous_warps(cg::thread_block ctb, const T* src, dsize_t size, dsize_t offset = 0) {
+        constexpr dsize_t warp_size = 32;
+        auto warp = cg::tiled_partition<warp_size>(ctb);
+
+        size_type copy_size = min(size, size_ - offset);
+        auto data = data_ + offset;
+
+        // Amount of data loaded by each warp (except the last)
+        dsize_t warp_load_size = div_up(copy_size, warp.meta_group_size());
+        dsize_t warp_start = warp.meta_group_rank() * warp_load_size;
+        dsize_t warp_end = warp_start + warp_load_size;
+        for (size_type i = warp_start + warp.thread_rank(); i < warp_end; i += warp.size()) {
+            data[i] = src[i];
+        }
+        return copy_size;
     }
 
-    __device__ size_type load_strided_chunks(
+    __device__ size_type load_continuous_chunk_strided_warps(cg::thread_block ctb, const T* src, dsize_t size, dsize_t offset = 0) {
+        size_type copy_size = min(size, size_ - offset);
+        auto data = data_ + offset;
+        for (size_type i = ctb.thread_rank(); i < copy_size; i += ctb.size()) {
+            data[i] = src[i];
+        }
+        return copy_size;
+    }
+
+    __device__ size_type load_strided_chunks_continuous_warps(
         cg::thread_block ctb,
         const T* src,
-        dsize_t total_chunk_size,
         dsize_t chunk_size,
+        dsize_t num_chunks,
         dsize_t chunk_stride,
-        dsize_t offset = 0
+        dsize_t offset_items = 0
     ) {
         constexpr dsize_t warp_size = 32;
         auto warp = cg::tiled_partition<warp_size>(ctb);
 
-        size_type copy_size = min(total_chunk_size, size_ - offset);
-        auto data = data_ + offset;
+        size_type copy_size = min(chunk_size * num_chunks, size_ - offset_items);
+        auto data = data_ + offset_items;
 
-        // Number of times each warp will load values
-        auto warp_loads = div_up(copy_size, warp.size());
-        auto warp_start = warp.meta_group_rank() * warp_loads * warp.size();
-        auto warp_end = warp_start + warp_loads * warp.size();
+        // Amount of data loaded by each warp (except the last)
+        dsize_t warp_load_size = div_up(copy_size, warp.meta_group_size());
+        dsize_t warp_start = warp.meta_group_rank() * warp_load_size;
+        dsize_t warp_end = min(warp_start + warp_load_size, copy_size);
 
-        auto warp_offset_in_start_chunk = warp_start % chunk_size;
+//        if (ctb.group_index().x == 1 && ctb.group_index().y == 2 && warp.thread_rank() == 0) {
+//            printf(
+//                "Block: [%u, %u], Warp: %u, Chunk size: %u, Num chunks: %u, Chunk stride: %u, Copy size: %u, Warp load size: %u, Warp start: %u, Warp end: %u\n",
+//                ctb.group_index().x,
+//                ctb.group_index().y,
+//                warp.meta_group_rank(),
+//                chunk_size,
+//                num_chunks,
+//                chunk_stride,
+//                copy_size,
+//                warp_load_size,
+//                warp_start,
+//                warp_end
+//            );
+//        }
 
         for (size_type i = warp_start + warp.thread_rank(); i < warp_end; i += warp.size()) {
-            auto chunk_idx = (i + warp_offset_in_start_chunk) / chunk_size;
-            auto chunk_offset = (i + warp_offset_in_start_chunk) % chunk_size;
-            auto data_idx =  (chunk_size + chunk_stride) * chunk_idx + chunk_offset;
-            data[data_idx] = src[i];
+            auto chunk_idx = i / chunk_size;
+            auto chunk_offset = i % chunk_size;
+            auto src_idx =  (chunk_size + chunk_stride) * chunk_idx + chunk_offset;
+
+//            if (ctb.group_index().x == 1 && ctb.group_index().y == 2 && num_chunks == 8) {
+//                printf(
+//                    "Block: [%u, %u], Warp: %u, i: %u, Src idx: %u, Src value: %f\n",
+//                    ctb.group_index().x,
+//                    ctb.group_index().y,
+//                    warp.meta_group_rank(),
+//                    i,
+//                    src_idx,
+//                    src[src_idx]
+//                );
+//            }
+
+            data[i] = src[src_idx];
+        }
+        return copy_size;
+    }
+
+    __device__ size_type load_strided_chunks_strided_warps(
+        cg::thread_block ctb,
+        const T* src,
+        dsize_t chunk_size,
+        dsize_t num_chunks,
+        dsize_t chunk_stride,
+        dsize_t offset_items = 0
+    ) {
+        size_type copy_size = min(chunk_size * num_chunks, size_ - offset_items);
+        auto data = data_ + offset_items;
+
+        for (size_type i = ctb.thread_rank(); i < copy_size; i += ctb.size()) {
+            auto chunk_idx = i / chunk_size;
+            auto chunk_offset = i % chunk_size;
+            auto src_idx =  (chunk_size + chunk_stride) * chunk_idx + chunk_offset;
+            data[i] = src[src_idx];
         }
         return copy_size;
     }
@@ -104,33 +189,13 @@ public:
 private:
     value_type* data_;
     dsize_t size_;
-
-    __device__ size_type load_warp_continuous_impl(cg::thread_block ctb, const T* src, dsize_t size, dsize_t offset = 0) {
-        constexpr dsize_t warp_size = 32;
-        auto warp = cg::tiled_partition<warp_size>(ctb);
-
-        size_type copy_size = min(size, size_ - offset);
-        auto data = data_ + offset;
-
-        // Number of times each warp will load values
-        auto warp_loads = div_up(copy_size, warp.size());
-        auto warp_start = warp.meta_group_rank() * warp_loads * warp.size();
-        auto warp_end = warp_start + warp_loads * warp.size();
-        for (size_type i = warp_start + warp.thread_rank(); i < warp_end; i += warp.size()) {
-            data[i] = src[i];
-        }
-        return copy_size;
-    }
-
-    __device__ size_type load_warp_strided_impl(cg::thread_block ctb, const T* src, dsize_t size, dsize_t offset = 0) {
-        size_type copy_size = min(size, size_ - offset);
-        auto data = data_ + offset;
-        for (size_type i = ctb.thread_index().x; i < copy_size; i += ctb.size()) {
-            data[i] = src[i];
-        }
-        return copy_size;
-    }
 };
 
+template<typename T>
+__device__ void swap(shared_mem_buffer<T>& a, shared_mem_buffer<T>& b) {
+    shared_mem_buffer<T> c{std::move(a)};
+    a = std::move(b);
+    b = std::move(c);
+}
 
 }

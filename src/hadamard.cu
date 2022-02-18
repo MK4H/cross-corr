@@ -8,7 +8,6 @@
 
 #include "types.cuh"
 #include "helpers.cuh"
-#include "shared_mem.cuh"
 
 namespace cg = cooperative_groups;
 

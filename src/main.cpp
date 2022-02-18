@@ -271,6 +271,7 @@ std::unordered_map<std::string, std::function<int(
         {"nai_shift_per_warp_one_to_one", run_measurement<naive_shift_per_warp_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_simple_indexing_one_to_one", run_measurement<naive_shift_per_warp_simple_indexing_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_work_distribution_one_to_one", run_measurement<naive_shift_per_warp_work_distribution_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_warp_shared_mem_rows_one_to_one", run_measurement<naive_shift_per_warp_shared_mem_rows_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
         {"nai_rows", run_measurement<naive_ring_buffer_row_alg<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
         {"nai_def_block", run_measurement<naive_def_per_block<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
         {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},

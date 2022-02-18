@@ -286,7 +286,7 @@ __global__ void ccn_ring_buffer_row(
         auto ref_buffer = make_row_ring_buffer<2>(
             ctb,
             ref_slice_block.row(row),
-            ref_s
+            std::move(ref_s)
         );
 
         // When def is shifted by -5 on x, and we access item 0 in ref, we want item 5 in def,
@@ -299,7 +299,7 @@ __global__ void ccn_ring_buffer_row(
                 min(ref_slice_block.size().x, subregion_size.x - def_row_start_idx),
                 def_row_start_idx
             ),
-            def_s
+            std::move(def_s)
         );
 
         // Relative offsets of the two buffers stay the same during the whole row processing

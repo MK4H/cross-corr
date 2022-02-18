@@ -222,7 +222,7 @@ public:
         SLICE src,
         shared_mem_buffer<T> buffer
     )
-        :src_(src), buffer_(buffer), tail_(0), tail_src_offset_(0)
+        :src_(src), buffer_(std::move(buffer)), tail_(0), tail_src_offset_(0)
     {
         dsize_t load_size = load_part(ctb, 0, 0);
         load_part(ctb, load_size, load_size);
@@ -287,7 +287,7 @@ private:
 
     __device__ dsize_t load_part(cg::thread_block ctb, dsize_t buffer_offset, dsize_t src_offset) {
         auto part_slice = src_.subslice(buffer_.size() / NUM_PARTS, src_offset);
-        return buffer_.load_continuous(
+        return buffer_.load_continuous_chunk_continuous_warps(
             ctb,
             part_slice.data(),
             min(buffer_.size() / NUM_PARTS, part_slice.size()),
@@ -306,7 +306,7 @@ __device__ row_ring_buffer<T, SLICE, NUM_PARTS> make_row_ring_buffer(
     return row_ring_buffer<T, SLICE, NUM_PARTS>{
         ctb,
         std::move(src),
-        buffer
+        std::move(buffer)
     };
 }
 
