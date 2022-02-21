@@ -157,9 +157,12 @@ void run_ccn_shift_per_warp_shared_mem_rows(
     RES* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
+    dsize_t num_right_matrices,
     dsize_t shifts_per_cuda_block,
     dsize_t shared_mem_row_size,
-    dsize_t shared_mem_rows
+    dsize_t shared_mem_rows,
+    dsize_t right_matrices_per_block,
+    bool strided_load
 );
 
 }

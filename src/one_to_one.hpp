@@ -880,6 +880,7 @@ public:
         shifts_per_block_ = args.value("shifts_per_block", 8);
         shared_mem_row_size_ = args.value("shared_mem_row_size", 32);
         shared_mem_rows_ = args.value("shared_mem_rows", shifts_per_block_);
+        strided_load_ = args.value("strided_load", true);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -898,7 +899,8 @@ public:
         return std::vector<std::pair<std::string, std::string>>{
             std::make_pair("shifts_per_block", std::to_string(shifts_per_block_)),
             std::make_pair("shared_mem_row_size", std::to_string(shared_mem_row_size_)),
-            std::make_pair("shared_mem_rows", std::to_string(shared_mem_rows_))
+            std::make_pair("shared_mem_rows", std::to_string(shared_mem_rows_)),
+            std::make_pair("strided_load", std::to_string(strided_load_))
         };
     }
 
@@ -931,9 +933,12 @@ protected:
                          d_result_,
                          target_.matrix_size(),
                          result_.matrix_size(),
+                         1,
                          shifts_per_block_,
                          shared_mem_row_size_,
-                         shared_mem_rows_
+                         shared_mem_rows_,
+                         1,
+                         strided_load_
                      )
         );
 
@@ -965,6 +970,7 @@ private:
     dsize_t shifts_per_block_;
     dsize_t shared_mem_row_size_;
     dsize_t shared_mem_rows_;
+    bool strided_load_;
 };
 
 template<typename T, bool DEBUG, typename ALLOC>

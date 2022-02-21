@@ -5,6 +5,7 @@
 #include <cooperative_groups/memcpy_async.h>
 #include <cooperative_groups/reduce.h>
 
+#include <cassert>
 #include <stdexcept>
 
 #include "types.cuh"
@@ -448,11 +449,11 @@ __global__ void ccn_shift_per_warp_simple_indexing(
  * @param warp_y_shift
  * @param sum
  */
-template<typename T, typename RES>
-__device__ void compute_from_buffer(
+template<dsize_t NUM_RIGHT, typename T, typename RES>
+__device__ void compute_from_shared_mem_buffers(
     cg::thread_block_tile<warp_size> warp,
     const shared_mem_buffer<T>& left,
-    const shared_mem_buffer<T>& right,
+    const shared_mem_buffer<T>(&right)[NUM_RIGHT],
     int left_buffer_start_row,
     dsize_t right_buffer_start_row,
     dsize_t row_size,
@@ -460,7 +461,7 @@ __device__ void compute_from_buffer(
     dsize_t warp_right_buffer_end_row,
     dsize_t num_left_loaded_rows,
     int warp_y_shift,
-    RES& sum
+    RES (&sum)[NUM_RIGHT]
 ) {
 
     // Limit the right buffer rows by the available corresponding rows in the left buffer
@@ -490,81 +491,92 @@ __device__ void compute_from_buffer(
         right_idx < warp_right_end_offset;
         right_idx += warp.size()
     ) {
-        sum += left[right_idx + buffer_offset] * right[right_idx];
+        auto l = left[right_idx + buffer_offset];
+        for (dsize_t i = 0; i < NUM_RIGHT; ++i) {
+            sum[i] += l * right[i][right_idx];
+        }
     }
 }
 
-/**
- * In this implementation, the warps in the given block
- * compute the same shifts on the x axis, but on consecutive rows. This allows for
- * offset access to shared memory, which compared to strided access of implementations
- * with warps in the same block computed shifts with the same y axis does not lead
- * to bank conflicts.
- *
- * TODO: This does not work with shared_mem_rows < shift_per_block
- *
- *
- * @tparam T
- * @tparam RES
- * @param left
- * @param right
- * @param out
- * @param matrix_size
- * @param search_size
- * @param shared_mem_buffer_size
- */
 template<typename T, typename RES>
-__global__ void ccn_shift_per_warp_shared_mem_rows(
+struct shared_mem_rows_impl_args {
+    const T* __restrict__ left;
+    const T* __restrict__ right;
+    RES* __restrict__ out;
+    dsize2_t matrix_size;
+    dsize2_t search_size;
+    dsize_t shifts_per_block;
+    dsize_t shared_mem_row_size;
+    dsize_t shared_mem_rows;
+    dsize2_t block_right_start;
+    dsize2_t block_right_end;
+    int block_x_shift;
+    int block_min_y_shift;
+
+    __device__ shared_mem_rows_impl_args(
+        const T* __restrict__ left,
+        const T* __restrict__ right,
+        RES* __restrict__ out,
+        dsize2_t matrix_size,
+        dsize2_t search_size,
+        dsize_t shifts_per_block,
+        dsize_t shared_mem_row_size,
+        dsize_t shared_mem_rows,
+        dsize2_t block_right_start,
+        dsize2_t block_right_end,
+        int block_x_shift,
+        int block_min_y_shift
+    ) : left(left), right(right), out(out), matrix_size(matrix_size),
+        search_size(search_size), shifts_per_block(shifts_per_block),
+        shared_mem_row_size(shared_mem_row_size), shared_mem_rows(shared_mem_rows),
+        block_right_start(block_right_start), block_right_end(block_right_end),
+        block_x_shift(block_x_shift), block_min_y_shift(block_min_y_shift)
+    {
+
+    }
+};
+
+template<typename T, typename RES>
+__device__ shared_mem_rows_impl_args<T, RES> create_shared_mem_rows_impl_args(
     const T* __restrict__ left,
     const T* __restrict__ right,
     RES* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
+    dsize_t shifts_per_block,
     dsize_t shared_mem_row_size,
-    dsize_t shared_mem_rows
+    dsize_t shared_mem_rows,
+    dsize2_t block_right_start,
+    dsize2_t block_right_end,
+    int block_x_shift,
+    int block_min_y_shift
 ) {
-    cg::thread_block ctb = cg::this_thread_block();
-    cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
-
-    dsize_t shifts_per_block = warp.meta_group_size();
-    dsize2_t half_search_size = (search_size - 1) / 2;
-
-    // These shifts are from right matrix to left, i.e. if we have index into the right matrix
-    //  we need to add this value to get corresponding index in left matrix.
-    //  Inversely if we have index into the left matrix, we need to subtract this to get index
-    //  into the left matrix
-    int block_x_shift = ctb.group_index().x - half_search_size.x;
-    // Shift of the first warp in the block
-    int block_min_y_shift = static_cast<int>(ctb.group_index().y * shifts_per_block) - static_cast<int>(half_search_size.y);
-    // Shift of the last warp in the block
-    int block_max_y_shift =
-        min(
-            static_cast<int>(ctb.group_index().y * shifts_per_block) + shifts_per_block - 1,
-            static_cast<int>(search_size.y)
-        ) -
-        static_cast<int>(half_search_size.y);
-
-    // Block is reading submatrices from right sequentially
-    dsize2_t block_right_start(
-        max(0, -block_x_shift),
-        max(0, -block_max_y_shift)
+    return shared_mem_rows_impl_args<T, RES>(
+        left,
+        right,
+        out,
+        matrix_size,
+        search_size,
+        shifts_per_block,
+        shared_mem_row_size,
+        shared_mem_rows,
+        block_right_start,
+        block_right_end,
+        block_x_shift,
+        block_min_y_shift
     );
+}
 
-    dsize2_t block_right_end(
-        min(matrix_size.x - block_x_shift, matrix_size.x),
-        min(matrix_size.y - block_min_y_shift, matrix_size.y)
-    );
-
-    int warp_y_shift = block_min_y_shift + static_cast<int>(warp.meta_group_rank());
+template<dsize_t NUM_RIGHT, bool STRIDED_LOAD, typename T, typename RES>
+__device__ void shared_mem_rows_impl(
+    cg::thread_block ctb,
+    cg::thread_block_tile<warp_size> warp,
+    shared_mem_rows_impl_args<T, RES> args
+) {
+    int warp_y_shift = args.block_min_y_shift + static_cast<int>(warp.meta_group_rank());
 
     dsize_t warp_right_start_row = max(0, -warp_y_shift);
-    dsize_t warp_right_end_row = min(matrix_size.y - warp_y_shift, matrix_size.y);
-
-    T* shared = shared_memory_proxy<T>();
-    shared_mem_buffer<T> left_bottom_s = shared_mem_buffer<T>::allocate(&shared, shared_mem_row_size * shared_mem_rows);
-    shared_mem_buffer<T> left_top_s = shared_mem_buffer<T>::allocate(&shared, shared_mem_row_size * shared_mem_rows);
-    // TODO: Possibly multiple right matrices
-    shared_mem_buffer<T> right_s = shared_mem_buffer<T>::allocate(&shared, shared_mem_row_size * shared_mem_rows);
+    dsize_t warp_right_end_row = min(args.matrix_size.y - warp_y_shift,args. matrix_size.y);
 
     // We need to limit the number of values preloaded into left buffer so that we don't load any values
     // which are to be used by the second right buffer
@@ -579,21 +591,35 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
     // We just need to handle this when preloading, after that everything should work as intended
     // as we only touch the left rows corresponding to the right rows, so nothing should touch then
     // negative rows
-    int left_buffer_preload_start_row = static_cast<int>(block_right_start.y) + block_min_y_shift;
+    int left_buffer_preload_start_row = static_cast<int>(args.block_right_start.y) + args.block_min_y_shift;
     dsize_t left_src_preload_start_row = left_buffer_preload_start_row >= 0 ? left_buffer_preload_start_row : 0;
     dsize_t preload_offset_rows = left_buffer_preload_start_row >= 0 ? 0 : -left_buffer_preload_start_row;
 
-    RES sum = 0;
-    for (
-        dsize_t iter_block_right_start_x = block_right_start.x;
-        iter_block_right_start_x < block_right_end.x;
-        iter_block_right_start_x += shared_mem_row_size
-    ) {
+    T* shared = shared_memory_proxy<T>();
+    shared_mem_buffer<T> left_bottom_s = shared_mem_buffer<T>::allocate(&shared, args.shared_mem_row_size * args.shared_mem_rows);
+    shared_mem_buffer<T> left_top_s = shared_mem_buffer<T>::allocate(&shared, args.shared_mem_row_size * args.shared_mem_rows);
 
-        dsize_t row_size = min(shared_mem_row_size, block_right_end.x - iter_block_right_start_x);
-        dsize_t stride = matrix_size.x - row_size;
+    // TODO: Remove size from the shared_mem_buffer struct as it is shared between all the buffers
+    shared_mem_buffer<T> right_s[NUM_RIGHT];
+    for (dsize_t i = 0; i < NUM_RIGHT; ++i) {
+        right_s[i] = shared_mem_buffer<T>::allocate(&shared, args.shared_mem_row_size * args.shared_mem_rows);
+    }
+
+    RES sum[NUM_RIGHT];
+    for (dsize_t i = 0; i < NUM_RIGHT; ++i) {
+        sum[i] = 0;
+    }
+
+    for (
+        dsize_t iter_block_right_start_x = args.block_right_start.x;
+        iter_block_right_start_x < args.block_right_end.x;
+        iter_block_right_start_x += args.shared_mem_row_size
+        ) {
+
+        dsize_t row_size = min(args.shared_mem_row_size, args.block_right_end.x - iter_block_right_start_x);
+        dsize_t stride = args.matrix_size.x - row_size;
         // This should always be inside the left matrix due to bound checking when computing block_right_start
-        dsize_t block_left_x_start = iter_block_right_start_x + block_x_shift;
+        dsize_t block_left_x_start = iter_block_right_start_x + args.block_x_shift;
 
         // This needs to be bound checked explicitly as block_right_start depends on the block_max_shift,
         // so block_min_shift might be outside the left matrix for first few rows of right matrix
@@ -602,69 +628,65 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
             left_src_preload_start_row
         );
         // Size of the last load, for preload includes the prefixed zeroes when preload offset is not 0
-        dsize_t last_load_size = min(shared_mem_rows, matrix_size.y - left_buffer_preload_start_row);
+        dsize_t last_load_size = min(args.shared_mem_rows, args.matrix_size.y - left_buffer_preload_start_row);
 
         // Preload first values into the bottom buffer
-        // TODO: Try strided_warps and measure the difference
-        //  it should be faster for small data
-        left_bottom_s.load_strided_chunks_continuous_warps(
+        left_bottom_s.template load_strided_chunks<STRIDED_LOAD>(
             ctb,
-            left + left_preload_start.linear_idx(matrix_size.x),
+            args.left + left_preload_start.linear_idx(args.matrix_size.x),
             row_size,
             last_load_size - preload_offset_rows,
             stride,
             preload_offset_rows * row_size
         );
 
+
         int left_buffer_start_row = left_buffer_preload_start_row;
         // TODO: Unroll into three loops, start-up, core, finish
         //  where core can get rid of some of the range checks and run faster
         for (
-            dsize_t right_buffer_start_row = block_right_start.y;
-            right_buffer_start_row < block_right_end.y;
-            right_buffer_start_row += shared_mem_rows, left_buffer_start_row += shared_mem_rows
+            dsize_t right_buffer_start_row = args.block_right_start.y;
+            right_buffer_start_row < args.block_right_end.y;
+            right_buffer_start_row += args.shared_mem_rows, left_buffer_start_row += args.shared_mem_rows
             ) {
-            dsize2_t right_load_start{
-                iter_block_right_start_x,
-                right_buffer_start_row
-            };
-            dsize_t right_load_size = min(shared_mem_rows, block_right_end.y - right_buffer_start_row);
-            // Load the rows from left and possibly multiple right matrices
-
-            // TODO: Try strided_warps and measure the difference
-            //  it should be faster for small data
-            right_s.load_strided_chunks_continuous_warps(
-                ctb,
-                right + right_load_start.linear_idx(matrix_size.x),
-                row_size,
-                right_load_size,
-                stride
-            );
-
             dsize2_t left_load_start{
                 block_left_x_start,
                 // The first preload_size rows are already in the bottom buffer
                 left_buffer_start_row + last_load_size
             };
             // TODO: This should be the same as right load size
-            dsize_t left_load_size = min(shared_mem_rows, matrix_size.y - left_load_start.y);
+            dsize_t left_load_size = min(args.shared_mem_rows, args.matrix_size.y - left_load_start.y);
 
-            // TODO: Try strided_warps and measure the difference
-            //  it should be faster for small data
-            left_top_s.load_strided_chunks_continuous_warps(
+            left_top_s.template load_strided_chunks<STRIDED_LOAD>(
                 ctb,
-                left + left_load_start.linear_idx(matrix_size.x),
+                args.left + left_load_start.linear_idx(args.matrix_size.x),
                 row_size,
                 left_load_size,
                 stride
             );
+
+            dsize2_t right_load_start{
+                iter_block_right_start_x,
+                right_buffer_start_row
+            };
+            dsize_t right_load_size = min(args.shared_mem_rows, args.block_right_end.y - right_buffer_start_row);
+            // Load the rows from left and possibly multiple right matrices
+            for (dsize_t i = 0; i < NUM_RIGHT; ++i) {
+                right_s[i].template load_strided_chunks<STRIDED_LOAD>(
+                    ctb,
+                    args.right + right_load_start.linear_idx(args.matrix_size.x),
+                    row_size,
+                    right_load_size,
+                    stride
+                );
+            }
 
             ctb.sync();
 
             dsize_t warp_right_buffer_start_row = max(warp_right_start_row, right_buffer_start_row) - right_buffer_start_row;
             dsize_t warp_right_buffer_end_row = min(warp_right_end_row, right_buffer_start_row + right_load_size) - right_buffer_start_row;
 
-            compute_from_buffer(
+            compute_from_shared_mem_buffers(
                 warp,
                 left_bottom_s,
                 right_s,
@@ -678,7 +700,7 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
                 sum
             );
 
-            compute_from_buffer(
+            compute_from_shared_mem_buffers(
                 warp,
                 left_top_s,
                 right_s,
@@ -701,12 +723,134 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
 
     dsize2_t warp_out_pos{
         ctb.group_index().x,
-        ctb.group_index().y * shifts_per_block + warp.meta_group_rank()
+        ctb.group_index().y * args.shifts_per_block + warp.meta_group_rank()
     };
 
-    sum = cg::reduce(warp, sum, cg::plus<RES>());
-    if (warp.thread_rank() == 0) {
-        out[warp_out_pos.linear_idx(search_size.x)] = sum;
+    for (dsize_t i = 0; i < NUM_RIGHT; ++i) {
+        sum[i] = cg::reduce(warp, sum[i], cg::plus<RES>());
+        if (warp.thread_rank() == 0) {
+            args.out[warp_out_pos.linear_idx(args.search_size.x)] = sum[i];
+        }
+    }
+}
+
+constexpr dsize_t max_num_right_matrices = 8;
+
+/**
+ * In this implementation, the warps in the given block
+ * compute the same shifts on the x axis, but on consecutive rows. This allows for
+ * offset access to shared memory, which compared to strided access of implementations
+ * with warps in the same block computed shifts with the same y axis does not lead
+ * to bank conflicts.
+ *
+ * TODO: This does not work with shared_mem_rows < shift_per_block
+ * TODO: Add version which iterates through all right matrices with the single left matrix buffer
+ *  which will need to store per thread sums in shared memory using atomic instructions
+ *
+ * @tparam T
+ * @tparam RES
+ * @param left
+ * @param right
+ * @param out
+ * @param matrix_size
+ * @param search_size
+ * @param shared_mem_buffer_size
+ */
+template<bool STRIDED_LOAD, typename T, typename RES>
+__global__ void ccn_shift_per_warp_shared_mem_rows(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t num_right_matrices,
+    dsize_t shared_mem_row_size,
+    dsize_t shared_mem_rows,
+    dsize_t right_matrices_per_block
+) {
+    cg::thread_block ctb = cg::this_thread_block();
+    cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
+
+    dsize_t shifts_per_block = warp.meta_group_size();
+    dsize2_t half_search_size = (search_size - 1) / 2;
+
+    // Each warp computes the same shift in right_matrices_per_warp consecutive matrices
+    // This index tells us which group is to be computed by the current warp
+    // For this work distribution, we imagine the result matrices laid left to right
+    // There will be num_right_matrices / right_matrices_per_warp times more blocks than is
+    // required, so if we divide the block x index by search_size.x, we get which group of right matrices
+    // of size right_matrices_per_warp this warp is to compute
+    dsize_t block_x_index = ctb.group_index().x;
+    dsize_t matrix_group_idx = block_x_index / search_size.x;
+    // Offset in the output matrix, which will tell us the shift to be computed
+    dsize_t output_x_offset = block_x_index % search_size.x;
+
+    // Index of the first right matrix to be processed by the current warp
+    dsize_t matrix_group_start_idx = matrix_group_idx * right_matrices_per_block;
+
+    dsize_t block_num_right_matrices = min(num_right_matrices - matrix_group_start_idx, right_matrices_per_block);
+
+
+    // These shifts are from right matrix to left, i.e. if we have index into the right matrix
+    //  we need to add this value to get corresponding index in left matrix.
+    //  Inversely if we have index into the left matrix, we need to subtract this to get index
+    //  into the left matrix
+    int block_x_shift = static_cast<int>(output_x_offset) - half_search_size.x;
+    // Shift of the first warp in the block
+    int block_min_y_shift = static_cast<int>(ctb.group_index().y * shifts_per_block) - static_cast<int>(half_search_size.y);
+    // Shift of the last warp in the block
+    int block_max_y_shift =
+        min(
+            static_cast<int>(ctb.group_index().y * shifts_per_block) + shifts_per_block - 1,
+            static_cast<int>(search_size.y)
+        ) -
+        static_cast<int>(half_search_size.y);
+
+    // Block is reading submatrices from right sequentially
+    dsize2_t block_right_start(
+        max(0, -block_x_shift),
+        max(0, -block_max_y_shift)
+    );
+
+    dsize2_t block_right_end(
+        min(matrix_size.x - block_x_shift, matrix_size.x),
+        min(matrix_size.y - block_min_y_shift, matrix_size.y)
+    );
+
+    auto args = create_shared_mem_rows_impl_args(
+        left,
+        right + matrix_group_start_idx * matrix_size.area(),
+        out + matrix_group_start_idx * search_size.area(),
+        matrix_size,
+        search_size,
+        shifts_per_block,
+        shared_mem_row_size,
+        shared_mem_rows,
+        block_right_start,
+        block_right_end,
+        block_x_shift,
+        block_min_y_shift
+    );
+
+    switch (block_num_right_matrices) {
+        case 1: shared_mem_rows_impl<1, STRIDED_LOAD>(ctb, warp, args);
+            break;
+        case 2: shared_mem_rows_impl<2, STRIDED_LOAD>(ctb, warp, args);
+            break;
+        case 3: shared_mem_rows_impl<3, STRIDED_LOAD>(ctb, warp, args);
+            break;
+        case 4: shared_mem_rows_impl<4, STRIDED_LOAD>(ctb, warp, args);
+            break;
+        case 5: shared_mem_rows_impl<5, STRIDED_LOAD>(ctb, warp, args);
+            break;
+        case 6: shared_mem_rows_impl<6, STRIDED_LOAD>(ctb, warp, args);
+            break;
+        case 7: shared_mem_rows_impl<7, STRIDED_LOAD>(ctb, warp, args);
+            break;
+        case max_num_right_matrices: shared_mem_rows_impl<max_num_right_matrices, STRIDED_LOAD>(ctb, warp, args);
+            break;
+        default:
+            assert(false);
     }
 }
 
@@ -840,9 +984,12 @@ void run_ccn_shift_per_warp_shared_mem_rows(
     RES* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
+    dsize_t num_right_matrices,
     dsize_t shifts_per_cuda_block,
     dsize_t shared_mem_row_size,
-    dsize_t shared_mem_rows
+    dsize_t shared_mem_rows,
+    dsize_t right_matrices_per_block,
+    bool strided_load
     // dsize_t cols_per_warp,
     // dsize_t rows_per_warp
 ) {
@@ -850,25 +997,50 @@ void run_ccn_shift_per_warp_shared_mem_rows(
         throw std::runtime_error("Too many shifts per block: "s + std::to_string(shifts_per_cuda_block) + " (max 32)");
     }
 
+    if (right_matrices_per_block == 0 || right_matrices_per_block > max_num_right_matrices) {
+        throw std::runtime_error("Invalid number of right matrices per block: "s +
+                                 std::to_string(right_matrices_per_block) +
+                                 " [1-"s +
+                                 std::to_string(max_num_right_matrices) +
+                                 "]"s
+        );
+    }
+
     dim3 num_threads(32, shifts_per_cuda_block);
     dim3 num_blocks(
-        search_size.x,
+        search_size.x * div_up(num_right_matrices, right_matrices_per_block),
         div_up(search_size.y, num_threads.y)
     );
 
     dsize_t shared_mem_buffer_size = shared_mem_row_size * shared_mem_rows * sizeof(T);
-    // One buffer for submatrices from right matrix and two for submatrices from left input
-    dsize_t shared_mem_size = 3 * shared_mem_buffer_size;
-    // There are two shared memory buffers, one for left and one for right input matrix
-    ccn_shift_per_warp_shared_mem_rows<<<num_blocks, num_threads, shared_mem_size>>>(
-        left,
-        right,
-        out,
-        matrix_size,
-        search_size,
-        shared_mem_row_size,
-        shared_mem_rows
-    );
+    // Two buffers for ring buffer of submatrices from left input
+    dsize_t shared_mem_size = (2 + right_matrices_per_block) * shared_mem_buffer_size;
+    if (strided_load) {
+        ccn_shift_per_warp_shared_mem_rows<true><<<num_blocks, num_threads, shared_mem_size>>>(
+            left,
+            right,
+            out,
+            matrix_size,
+            search_size,
+            num_right_matrices,
+            shared_mem_row_size,
+            shared_mem_rows,
+            right_matrices_per_block
+        );
+    } else {
+        ccn_shift_per_warp_shared_mem_rows<false><<<num_blocks, num_threads, shared_mem_size>>>(
+            left,
+            right,
+            out,
+            matrix_size,
+            search_size,
+            num_right_matrices,
+            shared_mem_row_size,
+            shared_mem_rows,
+            right_matrices_per_block
+        );
+    }
+
 }
 
 template void run_ccn_shift_per_warp<int, int>(
@@ -1021,9 +1193,12 @@ template void run_ccn_shift_per_warp_shared_mem_rows<int, int>(
     int* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
+    dsize_t num_right_matrices,
     dsize_t shifts_per_cuda_block,
     dsize_t shared_mem_row_size,
-    dsize_t shared_mem_rows
+    dsize_t shared_mem_rows,
+    dsize_t right_matrices_per_block,
+    bool strided_load
 );
 
 template void run_ccn_shift_per_warp_shared_mem_rows<float, float>(
@@ -1032,9 +1207,12 @@ template void run_ccn_shift_per_warp_shared_mem_rows<float, float>(
     float* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
+    dsize_t num_right_matrices,
     dsize_t shifts_per_cuda_block,
     dsize_t shared_mem_row_size,
-    dsize_t shared_mem_rows
+    dsize_t shared_mem_rows,
+    dsize_t right_matrices_per_block,
+    bool strided_load
 );
 
 template void run_ccn_shift_per_warp_shared_mem_rows<double, double>(
@@ -1043,9 +1221,12 @@ template void run_ccn_shift_per_warp_shared_mem_rows<double, double>(
     double* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
+    dsize_t num_right_matrices,
     dsize_t shifts_per_cuda_block,
     dsize_t shared_mem_row_size,
-    dsize_t shared_mem_rows
+    dsize_t shared_mem_rows,
+    dsize_t right_matrices_per_block,
+    bool strided_load
 );
 
 }

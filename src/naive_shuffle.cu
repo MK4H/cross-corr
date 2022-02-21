@@ -66,7 +66,7 @@ __device__ T load_with_bounds_check(const T* source, dsize2_t idx, dsize2_t size
 }
 
 /**
- * Arguments for the compute_matrices function.
+ * Arguments for the warp_shuffle_impl function.
  * As we need to write many calls for different constant values of NUM_RIGHTS which
  * all share the same argument values, we want to have each call as short as possible
  * This way, we can create the arguments with a single call and then use it in any of the calls in the switch statement
@@ -75,7 +75,7 @@ __device__ T load_with_bounds_check(const T* source, dsize2_t idx, dsize2_t size
  * @tparam RES
  */
 template<typename T, typename RES>
-struct compute_args {
+struct warp_shuffle_impl_args {
     const T* __restrict__ left;
     const T* __restrict__ right;
     RES* __restrict__ out;
@@ -86,7 +86,7 @@ struct compute_args {
     dsize2_t matrix_size;
     dsize2_t search_size;
 
-    __device__ compute_args(
+    __device__ warp_shuffle_impl_args(
         const T* __restrict__ left,
         const T* __restrict__ right,
         RES* __restrict__ out,
@@ -105,7 +105,7 @@ struct compute_args {
 };
 
 template<typename T, typename RES>
-__device__ compute_args<T, RES> create_args(
+__device__ warp_shuffle_impl_args<T, RES> create_warp_shuffle_impl_args(
     const T* __restrict__ left,
     const T* __restrict__ right,
     RES* __restrict__ out,
@@ -116,7 +116,7 @@ __device__ compute_args<T, RES> create_args(
     dsize2_t matrix_size,
     dsize2_t search_size
 ) {
-    return compute_args<T, RES>(
+    return warp_shuffle_impl_args<T, RES>(
         left,
         right,
         out,
@@ -130,9 +130,9 @@ __device__ compute_args<T, RES> create_args(
 }
 
 template<dsize_t NUM_RIGHTS, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
-__device__ void compute_matrices(
+__device__ void warp_shuffle_impl(
     cg::thread_block_tile<WARP_SIZE> warp,
-    compute_args<T, RES> args
+    warp_shuffle_impl_args<T, RES> args
 ) {
     // Compute the given shift for num_rights right matrices
     RES sum[NUM_RIGHTS];
@@ -318,7 +318,7 @@ __global__ void ccn_warp_shuffle(
 
     dsize_t thread_num_right_matrices = min(num_right_matrices - matrix_group_start_idx, right_matrices_per_thread);
 
-    auto args = create_args(
+    auto args = create_warp_shuffle_impl_args(
         left,
         right + matrix_group_start_idx * matrix_size.area(),
         out + matrix_group_start_idx * search_size.area(),
@@ -331,21 +331,21 @@ __global__ void ccn_warp_shuffle(
     );
 
     switch (thread_num_right_matrices) {
-        case 1: compute_matrices<1, false>(warp, args);
+        case 1: warp_shuffle_impl<1, false>(warp, args);
             break;
-        case 2: compute_matrices<2, false>(warp, args);
+        case 2: warp_shuffle_impl<2, false>(warp, args);
             break;
-        case 3: compute_matrices<3, false>(warp, args);
+        case 3: warp_shuffle_impl<3, false>(warp, args);
             break;
-        case 4: compute_matrices<4, false>(warp, args);
+        case 4: warp_shuffle_impl<4, false>(warp, args);
             break;
-        case 5: compute_matrices<5, false>(warp, args);
+        case 5: warp_shuffle_impl<5, false>(warp, args);
             break;
-        case 6: compute_matrices<6, false>(warp, args);
+        case 6: warp_shuffle_impl<6, false>(warp, args);
             break;
-        case 7: compute_matrices<7, false>(warp, args);
+        case 7: warp_shuffle_impl<7, false>(warp, args);
             break;
-        case max_num_right_matrices: compute_matrices<max_num_right_matrices, false>(warp, args);
+        case max_num_right_matrices: warp_shuffle_impl<max_num_right_matrices, false>(warp, args);
             break;
         default:
             assert(false);
@@ -470,7 +470,7 @@ __global__ void ccn_warp_shuffle_work_distribution(
 
     dsize_t thread_num_right_matrices = min(num_right_matrices - matrix_group_start_idx, right_matrices_per_thread);
 
-    auto args = create_args(
+    auto args = create_warp_shuffle_impl_args(
         left,
         right + matrix_group_start_idx * matrix_size.area(),
         out + matrix_group_start_idx * search_size.area(),
@@ -483,21 +483,21 @@ __global__ void ccn_warp_shuffle_work_distribution(
     );
 
     switch (thread_num_right_matrices) {
-        case 1: compute_matrices<1, true>(warp, args);
+        case 1: warp_shuffle_impl<1, true>(warp, args);
             break;
-        case 2: compute_matrices<2, true>(warp, args);
+        case 2: warp_shuffle_impl<2, true>(warp, args);
             break;
-        case 3: compute_matrices<3, true>(warp, args);
+        case 3: warp_shuffle_impl<3, true>(warp, args);
             break;
-        case 4: compute_matrices<4, true>(warp, args);
+        case 4: warp_shuffle_impl<4, true>(warp, args);
             break;
-        case 5: compute_matrices<5, true>(warp, args);
+        case 5: warp_shuffle_impl<5, true>(warp, args);
             break;
-        case 6: compute_matrices<6, true>(warp, args);
+        case 6: warp_shuffle_impl<6, true>(warp, args);
             break;
-        case 7: compute_matrices<7, true>(warp, args);
+        case 7: warp_shuffle_impl<7, true>(warp, args);
             break;
-        case max_num_right_matrices: compute_matrices<max_num_right_matrices, true>(warp, args);
+        case max_num_right_matrices: warp_shuffle_impl<max_num_right_matrices, true>(warp, args);
             break;
         default:
             assert(false);
@@ -519,12 +519,12 @@ void run_ccn_warp_shuffle(
         throw std::runtime_error("Too many rows per block: "s + std::to_string(cuda_rows_per_block) + " (max 32)");
     }
 
-    if (right_matrices_per_thread > max_num_right_matrices) {
-        throw std::runtime_error("Too many right matrices per thread: "s +
+    if (right_matrices_per_thread == 0 || right_matrices_per_thread > max_num_right_matrices) {
+        throw std::runtime_error("Invalid number of right matrices per thread: "s +
             std::to_string(right_matrices_per_thread) +
-            " (max "s +
+            " [1-"s +
             std::to_string(max_num_right_matrices) +
-            ")"s
+            "]"s
         );
     }
 
