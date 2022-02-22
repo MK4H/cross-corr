@@ -233,6 +233,18 @@ struct rectangle_distribution {
     }
 };
 
+/**
+ * No distribution assigns all rows to a single worker
+ *
+ * This leads to lower result precision than the distributions above,
+ * as the intermediate results we are adding each multiplication to become much larger,
+ * losing the lower bits in precision when adding
+ *
+ * With work distribution, each intermediate result is smaller, which results in
+ * higher precision of each intermediate result which are then added together.
+ * As they are all similar order of magnitude, the precision loss is again smaller
+ * which leads to better results.
+ */
 struct no_distribution {
     static __host__ dsize_t num_workers(
         [[maybe_unused]] dsize_t max_rows_per_worker,
@@ -246,12 +258,12 @@ struct no_distribution {
         dsize_t worker_y_index,
         [[maybe_unused]] dsize_t max_rows_per_worker,
         [[maybe_unused]] dsize_t matrix_size_rows,
-        [[maybe_unused]] dsize_t search_size_rows
+        dsize_t search_size_rows
     ) {
         return assigned_work{
             worker_y_index,
             0,
-            1
+            worker_y_index < search_size_rows ? 1u : 0u
         };
     }
 };
