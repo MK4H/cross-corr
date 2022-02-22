@@ -379,13 +379,22 @@ __global__ void ccn_warp_shuffle_work_distribution(
     cg::thread_block ctb = cg::this_thread_block();
     cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
 
-    // Index on the x axis in the strip of output matrices
-    dsize_t warp_x_index = ctb.group_index().x * ctb.group_dim().x;
-    // Each thread computes the same shift in right_matrices_per_thread consecutive matrices
-    // This index tells us which group is to be computed by the current thread
-    dsize_t matrix_group_idx = warp_x_index / search_size.x;
-    // Offset in the given output matrix on the x axis
-    dsize_t output_x_offset = warp_x_index % search_size.x;
+    // Matrix group is the group of right matrices (of at most right_matrices_per_thread matrices)
+    // for which current thread computes the given shift
+    // All warps in a block process the same 32 shifts in the x axis, but on different rows
+    // so warps in the first block compute shifts 0-31, warps in the second block compute shifts 32-63 etc.
+    // So each matrix_group needs to have as many threads as there are shifts in the x axis
+    // so number of shifts in the x axis / warp_size
+    // TODO: This is precomputed on CPU so we could pass it from there
+    dsize_t blocks_per_matrix_group = div_up(search_size.x, warp_size);
+
+    // Which matrix group this block and all its warps will compute
+    dsize_t matrix_group_idx = ctb.group_index().x / blocks_per_matrix_group;
+    // Offset of the current block and all of its warps in its matrix group
+    // This corresponds to the position to write to in the output and the shift
+    // to compute
+    dsize_t matrix_group_block_offset = ctb.group_index().x % blocks_per_matrix_group;
+    dsize_t warp_output_x_offset = matrix_group_block_offset * warp_size;
 
     // Index of the first matrix in the group processed by the current thread
     dsize_t matrix_group_start_idx = matrix_group_idx * right_matrices_per_thread;
@@ -410,7 +419,7 @@ __global__ void ccn_warp_shuffle_work_distribution(
 
     // All warps of given block start at the same x, but each work on different row of output
     dsize2_t thread0_out_pos = dsize2_t {
-        output_x_offset,
+        warp_output_x_offset,
         work.output_row
     };
     dsize2_t last_warp_thread_out_pos = thread0_out_pos +
@@ -572,9 +581,15 @@ void run_ccn_warp_shuffle_work_distribution(
 
     dsize_t num_workers = DIST::num_workers(max_rows_per_thread, matrix_size.y, search_size.y);
 
-    dim3 num_threads(32, cuda_rows_per_block);
+    // Each row of cuda block corresponds to a single warp for simplified code
+    constexpr dsize_t block_x_size = 32;
+
+    dsize_t num_matrix_groups = div_up(num_right_matrices, right_matrices_per_thread);
+    dsize_t blocks_per_matrix_group = div_up(search_size.x, block_x_size);
+
+    dim3 num_threads(block_x_size, cuda_rows_per_block);
     dim3 num_blocks(
-        div_up(search_size.x * div_up(num_right_matrices, right_matrices_per_thread), num_threads.x),
+        blocks_per_matrix_group * num_matrix_groups,
         div_up(num_workers, num_threads.y)
     );
 
@@ -684,6 +699,42 @@ template void run_ccn_warp_shuffle_work_distribution<rectangle_distribution, flo
 );
 
 template void run_ccn_warp_shuffle_work_distribution<rectangle_distribution, double, double>(
+    const double* __restrict__ left,
+    const double* __restrict__ right,
+    double* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t num_right_matrices,
+    dsize_t cuda_rows_per_block,
+    dsize_t right_matrices_per_thread,
+    dsize_t max_rows_per_thread
+);
+
+template void run_ccn_warp_shuffle_work_distribution<no_distribution, int, int>(
+    const int* __restrict__ left,
+    const int* __restrict__ right,
+    int* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t num_right_matrices,
+    dsize_t cuda_rows_per_block,
+    dsize_t right_matrices_per_thread,
+    dsize_t max_rows_per_thread
+);
+
+template void run_ccn_warp_shuffle_work_distribution<no_distribution, float, float>(
+    const float* __restrict__ left,
+    const float* __restrict__ right,
+    float* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t num_right_matrices,
+    dsize_t cuda_rows_per_block,
+    dsize_t right_matrices_per_thread,
+    dsize_t max_rows_per_thread
+);
+
+template void run_ccn_warp_shuffle_work_distribution<no_distribution, double, double>(
     const double* __restrict__ left,
     const double* __restrict__ right,
     double* __restrict__ out,

@@ -415,6 +415,9 @@ protected:
 
     void run_impl() override {
         switch (distribution_type_) {
+            case distribution::none:
+                run_kernel<no_distribution>();
+                break;
             case distribution::rectangle:
                 run_kernel<rectangle_distribution>();
                 break;
@@ -622,6 +625,9 @@ protected:
 
     void run_impl() override {
         switch (distribution_type_) {
+            case distribution::none:
+                run_kernel<no_distribution>();
+                break;
             case distribution::rectangle:
                 run_kernel<rectangle_distribution>();
                 break;

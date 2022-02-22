@@ -368,6 +368,236 @@ std::vector<std::string> naive_warp_shuffle_one_to_many<T, DEBUG, ALLOC>::labels
     "Kernel"
 };
 
+template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
+class naive_warp_shuffle_work_distribution_one_to_many: public one_to_many<T, ALLOC> {
+public:
+    explicit naive_warp_shuffle_work_distribution_one_to_many(const json& args)
+        :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_()
+    {
+        block_y_size_ = args.value("block_y_size", 8);
+        right_matrices_per_thread_ = args.value("right_matrices_per_thread", 2);
+        rows_per_thread_ = args.value("rows_per_thread", 10);
+        distribution_type_ = from_string(args.value("distribution_type", "rectangle"));
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return ref_;
+    }
+
+    const data_array<T, ALLOC>& targets() const override {
+        return targets_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return results_;
+    }
+
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("block_y_size", std::to_string(block_y_size_)),
+            std::make_pair("right_matrices_per_thread", std::to_string(right_matrices_per_thread_)),
+            std::make_pair("rows_per_thread", std::to_string(rows_per_thread_)),
+            std::make_pair("distribution_type", to_string(distribution_type_))
+        };
+    }
+
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_matrices_same_size(ref_, targets_);
+    }
+
+    void prepare_impl() override {
+        results_ = data_array<T, ALLOC>{ref_.matrix_size() + targets_.matrix_size() - 1, targets_.num_matrices()};
+
+        cuda_malloc(&d_ref_, ref_.size());
+        cuda_malloc(&d_targets_, targets_.size());
+        cuda_malloc(&d_results_, results_.size());
+    }
+
+    void transfer_impl() {
+        cuda_memcpy_to_device(d_ref_, ref_);
+        cuda_memcpy_to_device(d_targets_, targets_);
+    }
+
+    void run_impl() override {
+        switch (distribution_type_) {
+            case distribution::none:
+                run_kernel<no_distribution>();
+                break;
+            case distribution::rectangle:
+                run_kernel<rectangle_distribution>();
+                break;
+            case distribution::triangle:
+                run_kernel<triangle_distribution>();
+                break;
+        }
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(results_, d_results_);
+    }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
+    }
+
+private:
+
+    static std::vector<std::string> labels;
+
+    data_array<T, ALLOC> ref_;
+    data_array<T, ALLOC> targets_;
+
+    data_array<T, ALLOC> results_;
+
+    T* d_ref_;
+    T* d_targets_;
+    T* d_results_;
+
+    dsize_t block_y_size_;
+    dsize_t right_matrices_per_thread_;
+    dsize_t rows_per_thread_;
+    distribution distribution_type_;
+
+    template<typename DISTRIBUTION>
+    void run_kernel() {
+        CUDA_MEASURE(this->label_index(0),
+                     run_ccn_warp_shuffle_work_distribution<DISTRIBUTION>(
+                         d_ref_,
+                         d_targets_,
+                         d_results_,
+                         targets_.matrix_size(),
+                         results_.matrix_size(),
+                         targets_.num_matrices(),
+                         block_y_size_,
+                         right_matrices_per_thread_,
+                         rows_per_thread_
+                     )
+        );
+
+        CUCH(cudaDeviceSynchronize());
+        CUCH(cudaGetLastError());
+    }
+};
+
+template<typename T, bool DEBUG, typename ALLOC>
+std::vector<std::string> naive_warp_shuffle_work_distribution_one_to_many<T, DEBUG, ALLOC>::labels{
+    "Kernel"
+};
+
+template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
+class naive_shift_per_warp_shared_mem_rows_one_to_many: public one_to_many<T, ALLOC> {
+public:
+    explicit naive_shift_per_warp_shared_mem_rows_one_to_many(const json& args)
+        :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_()
+    {
+        shifts_per_block_ = args.value("shifts_per_block", 8);
+        shared_mem_row_size_ = args.value("shared_mem_row_size", 32);
+        shared_mem_rows_ = args.value("shared_mem_rows", shifts_per_block_);
+        strided_load_ = args.value("strided_load", true);
+        right_matrices_per_block_ = args.value("right_matrices_per_block", 8);
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return ref_;
+    }
+
+    const data_array<T, ALLOC>& targets() const override {
+        return targets_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return results_;
+    }
+
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("shifts_per_block", std::to_string(shifts_per_block_)),
+            std::make_pair("shared_mem_row_size", std::to_string(shared_mem_row_size_)),
+            std::make_pair("shared_mem_rows", std::to_string(shared_mem_rows_)),
+            std::make_pair("strided_load", std::to_string(strided_load_)),
+            std::make_pair("right_matrices_per_block", std::to_string(right_matrices_per_block_))
+        };
+    }
+
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_matrices_same_size(ref_, targets_);
+    }
+
+    void prepare_impl() override {
+        results_ = data_array<T, ALLOC>{ref_.matrix_size() + targets_.matrix_size() - 1, targets_.num_matrices()};
+
+        cuda_malloc(&d_ref_, ref_.size());
+        cuda_malloc(&d_targets_, targets_.size());
+        cuda_malloc(&d_results_, results_.size());
+    }
+
+    void transfer_impl() {
+        cuda_memcpy_to_device(d_ref_, ref_);
+        cuda_memcpy_to_device(d_targets_, targets_);
+    }
+
+    void run_impl() override {
+        CUDA_MEASURE(this->label_index(0),
+                     run_ccn_shift_per_warp_shared_mem_rows(
+                         d_ref_,
+                         d_targets_,
+                         d_results_,
+                         targets_.matrix_size(),
+                         results_.matrix_size(),
+                         targets_.num_matrices(),
+                         shifts_per_block_,
+                         shared_mem_row_size_,
+                         shared_mem_rows_,
+                         right_matrices_per_block_,
+                         strided_load_
+                     )
+        );
+
+        CUCH(cudaDeviceSynchronize());
+        CUCH(cudaGetLastError());
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(results_, d_results_);
+    }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return labels;
+    }
+
+private:
+
+    static std::vector<std::string> labels;
+
+    data_array<T, ALLOC> ref_;
+    data_array<T, ALLOC> targets_;
+
+    data_array<T, ALLOC> results_;
+
+    T* d_ref_;
+    T* d_targets_;
+    T* d_results_;
+
+    dsize_t shifts_per_block_;
+    dsize_t shared_mem_row_size_;
+    dsize_t shared_mem_rows_;
+    dsize_t right_matrices_per_block_;
+    bool strided_load_;
+};
+
+template<typename T, bool DEBUG, typename ALLOC>
+std::vector<std::string> naive_shift_per_warp_shared_mem_rows_one_to_many<T, DEBUG, ALLOC>::labels{
+    "Kernel"
+};
+
 
 template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
 class fft_original_alg_one_to_many: public one_to_many<T, ALLOC> {

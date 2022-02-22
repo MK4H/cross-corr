@@ -6,6 +6,7 @@
 
 namespace cross {
 static std::unordered_map<std::string, distribution> distributions {
+    {"none", distribution::none},
     {"rectangle", distribution::rectangle},
     {"triangle", distribution::triangle}
 };

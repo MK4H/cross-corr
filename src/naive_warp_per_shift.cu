@@ -1157,6 +1157,36 @@ template void run_ccn_shift_per_warp_work_distribution<rectangle_distribution, d
     dsize_t max_rows_per_warp
 );
 
+template void run_ccn_shift_per_warp_work_distribution<no_distribution, int, int>(
+    const int* __restrict__ left,
+    const int* __restrict__ right,
+    int* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_shifts_per_block,
+    dsize_t max_rows_per_warp
+);
+
+template void run_ccn_shift_per_warp_work_distribution<no_distribution, float, float>(
+    const float* __restrict__ left,
+    const float* __restrict__ right,
+    float* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_shifts_per_block,
+    dsize_t max_rows_per_warp
+);
+
+template void run_ccn_shift_per_warp_work_distribution<no_distribution, double, double>(
+    const double* __restrict__ left,
+    const double* __restrict__ right,
+    double* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_shifts_per_block,
+    dsize_t max_rows_per_warp
+);
+
 //template void run_ccn_shift_per_warp_shared_mem<int, int>(
 //    const int* __restrict__ left,
 //    const int* __restrict__ right,

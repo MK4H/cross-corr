@@ -196,7 +196,7 @@ struct triangle_distribution {
 
 
 
-// TODO: Simple rectangle distribution with twice the amount of workers where half of them
+// Simple rectangle distribution with twice the amount of workers where half of them
 //  do no work and just immediately exit
 struct rectangle_distribution {
     inline static __host__ __device__ dsize_t max_workers_per_row(
@@ -233,8 +233,31 @@ struct rectangle_distribution {
     }
 };
 
+struct no_distribution {
+    static __host__ dsize_t num_workers(
+        [[maybe_unused]] dsize_t max_rows_per_worker,
+        [[maybe_unused]] dsize_t matrix_size_rows,
+        dsize_t search_size_rows
+    ) {
+        return search_size_rows;
+    }
+
+    static __device__ assigned_work distribute_rows(
+        dsize_t worker_y_index,
+        [[maybe_unused]] dsize_t max_rows_per_worker,
+        [[maybe_unused]] dsize_t matrix_size_rows,
+        [[maybe_unused]] dsize_t search_size_rows
+    ) {
+        return assigned_work{
+            worker_y_index,
+            0,
+            1
+        };
+    }
+};
 
 enum class distribution {
+    none,
     rectangle,
     triangle
 };
