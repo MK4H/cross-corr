@@ -1,6 +1,8 @@
 import sys
 import subprocess as sp
 
+from external.execution_error import ExecutionError
+
 from pathlib import Path
 
 
@@ -30,8 +32,10 @@ class BenchmarkScript:
             print(f"Command: {command}")
 
         if res.returncode != 0:
-            print("Failed to run external benchmark", file=sys.stderr)
-            print(f"Exit code: {res.returncode}", file=sys.stderr)
-            #print(f"Stdout: {res.stdout}", file=sys.stderr)
-            print(f"Stderr: {res.stderr}", file=sys.stderr)
-            sys.exit(2)
+            raise ExecutionError(
+                "Failed to run external benchmark",
+                self.script_path,
+                res.returncode,
+                "",
+                res.stderr
+            )

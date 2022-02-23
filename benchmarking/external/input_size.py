@@ -1,5 +1,6 @@
 import re
 
+from typing import Dict
 
 class InputSize:
     def __init__(self, rows: int, columns: int, left_matrices: int, right_matrices: int):
@@ -43,3 +44,11 @@ class InputSize:
             return cls.from_dict(data)
         else:
             raise TypeError(f"Unexpected argument type {type(data)}")
+
+    def to_dict(self) -> Dict[str, int]:
+        return {
+            "rows": self.rows,
+            "cols": self.columns,
+            "left_matrices": self.left_matrices,
+            "right_matrices": self.right_matrices
+        }

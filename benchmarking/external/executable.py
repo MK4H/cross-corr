@@ -2,6 +2,7 @@ import subprocess as sp
 import sys
 
 from external.input_size import InputSize
+from external.execution_error import ExecutionError
 
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -31,11 +32,13 @@ class Executable:
         if res.returncode == 0:
             return res.stdout.startswith("Valid")
         else:
-            print("Failed to run input size validation", file=sys.stderr)
-            print(f"Exit code: {res.returncode}", file=sys.stderr)
-            print(f"Stdout: {res.stdout}", file=sys.stderr)
-            print(f"Stderr: {res.stderr}", file=sys.stderr)
-            sys.exit(2)
+            raise ExecutionError(
+                "Failed to run input size validation",
+                self.executable_path,
+                res.returncode,
+                res.stdout,
+                res.stderr
+            )
 
     def list_algorithms(self) -> List[str]:
         res = sp.run(
@@ -50,11 +53,13 @@ class Executable:
         if res.returncode == 0:
             return res.stdout.splitlines()
         else:
-            print("Failed to list algorithms", file=sys.stderr)
-            print(f"Exit code: {res.returncode}", file=sys.stderr)
-            print(f"Stdout: {res.stdout}", file=sys.stderr)
-            print(f"Stderr: {res.stderr}", file=sys.stderr)
-            sys.exit(2)
+            raise ExecutionError(
+                "Failed to list algorithms",
+                self.executable_path,
+                res.returncode,
+                res.stdout,
+                res.stderr
+            )
 
     def validate_data(self, valid_data: Path, data_paths: List[Path], csv: bool = False, normalize: bool = False) -> str:
         command = [
@@ -78,11 +83,13 @@ class Executable:
         if res.returncode == 0:
             return res.stdout
         else:
-            print("Failed to run output validation", file=sys.stderr)
-            print(f"Exit code: {res.returncode}", file=sys.stderr)
-            print(f"Stdout: {res.stdout}", file=sys.stderr)
-            print(f"Stderr: {res.stderr}", file=sys.stderr)
-            sys.exit(2)
+            raise ExecutionError(
+                "Failed to run output validation",
+                self.executable_path,
+                res.returncode,
+                res.stdout,
+                res.stderr
+            )
 
     def run_benchmark(
         self,
@@ -134,11 +141,13 @@ class Executable:
             print(f"Command: {command}")
 
         if res.returncode != 0:
-            print("Failed to run benchmark", file=sys.stderr)
-            print(f"Exit code: {res.returncode}", file=sys.stderr)
-            print(f"Stdout: {res.stdout}", file=sys.stderr)
-            print(f"Stderr: {res.stderr}", file=sys.stderr)
-            sys.exit(2)
+            raise ExecutionError(
+                "Failed to run benchmark",
+                self.executable_path,
+                res.returncode,
+                res.stdout,
+                res.stderr
+            )
 
         if validation_data_path is not None:
             with output_stats_path.open("a" if append else "w") as f:

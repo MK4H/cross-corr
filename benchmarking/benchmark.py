@@ -14,11 +14,12 @@ from abc import ABC, abstractmethod
 
 from ruamel.yaml import YAML
 
-from external import input_size, validator, executable, benchmark_script
+from external import input_size, validator, executable, benchmark_script, execution_error
 
 DEFAULT_OUTPUT_PATH = Path.cwd() / "output"
 DEFAULT_ITERATIONS = 100
 
+yaml = YAML(typ='safe', pure=True)
 
 class Run(ABC):
     def __init__(
@@ -37,8 +38,6 @@ class Run(ABC):
         :return:
         """
         pass
-
-
 
     @abstractmethod
     def run(self,
@@ -67,6 +66,10 @@ class Run(ABC):
             return factory_methods[data["type"]](idx, exe, base_dir_path, input_data_dir, data)
         else:
             raise ValueError(f"Unknown run type {data['type']}")
+
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
+        pass
 
 
 class InternalRun(Run):
@@ -138,6 +141,16 @@ class InternalRun(Run):
             ))
         return runs
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "idx": self.idx,
+            "name": self.name,
+            "alg_type": self.algorithm_type,
+            "executable": str(self.exe.executable_path),
+            "algorithm": self.algorithm,
+            "args": self.args
+        }
+
     def prepare(self):
         with self.args_file_path.open("w") as f:
             json.dump(self.args, f)
@@ -201,6 +214,14 @@ class ExternalRun(Run):
                 script_path,
             )
         ]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "idx": self.idx,
+            "name": self.name,
+            "alg_type": self.algorithm_type,
+            "script": str(self.script.script_path),
+        }
 
     def run(self,
             left_input: Path,
@@ -324,7 +345,7 @@ class Group:
         return sizes, data_type, iterations, validate, keep
 
     @classmethod
-    def from_dict(cls, data, global_config: GlobalConfig, index: int, exe: executable.Executable,):
+    def from_dict(cls, data, global_config: GlobalConfig, index: int, exe: executable.Executable):
         name = str(data['name']) if "name" in data else str(index)
         sizes, data_type, iterations, validate, keep = cls._config_from_dict(data.get("config", None), global_config)
 
@@ -370,6 +391,19 @@ class Group:
 
         return cls(name, runs, alg_type, sizes, data_type, group_dir, input_data_dir, output_data_dir, iterations, validate, keep)
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "config": {
+                "data_type": self.data_type,
+                "iterations": self.iterations,
+                "sizes": [size.to_dict() for size in self.sizes],
+                "validate": self.validate,
+                "keep": self.keep,
+            },
+            "runs": [run.to_dict() for run in self.runs]
+        }
+
     def generate_inputs(
             self,
             index: int,
@@ -387,7 +421,7 @@ class Group:
 
         return left_path, right_path
 
-    def cleanup(self):
+    def data_cleanup(self):
         shutil.rmtree(self.input_data_dir, ignore_errors=True)
         shutil.rmtree(self.output_data_dir, ignore_errors=True)
 
@@ -395,76 +429,110 @@ class Group:
         print(f"[{step}/{num_steps}] {message}")
         return step + 1
 
+    def write_failure_log(
+            self,
+            failure_log,
+            run: Run,
+            error: execution_error.ExecutionError,
+            input_idx: int,
+            in_size: input_size.InputSize,
+            left_path: Path,
+            right_path: Path
+    ):
+        # Append it as a single entry list, so that together all appends create one big top level list
+        data = [{
+            "run": run.to_dict(),
+            "input": {
+                "idx": input_idx,
+                "size": in_size.to_dict(),
+                "left": str(left_path),
+                "right": str(right_path),
+            },
+            "error": error.to_dict(),
+        }]
+        yaml.dump(data, failure_log)
+
     def run(
             self,
             valid: validator.Validator,
-            prevent_override: bool,
+            overwrite: bool,
             verbose: bool
     ):
-        self.result_dir.mkdir(exist_ok=not prevent_override, parents=True)
-        self.cleanup()
+        if overwrite:
+            shutil.rmtree(self.result_dir, ignore_errors=True)
+        self.result_dir.mkdir(exist_ok=False, parents=True)
+
+        self.data_cleanup()
 
         self.input_data_dir.mkdir(parents=True)
         self.output_data_dir.mkdir(parents=True)
 
+        with (self.result_dir / "group_definition.yml").open("w") as definition:
+            yaml.dump(self.to_dict(), definition)
+
         for run in self.runs:
             run.prepare()
 
-        num_steps = len(self.sizes) * len(self.runs) + len(self.sizes) + (len(self.sizes) if self.validate else 0)
-        step = 1
+        failure_log_path = self.result_dir / "failed_runs.yml"
+        with failure_log_path.open("a") as failure_log:
+            num_steps = len(self.sizes) * len(self.runs) + len(self.sizes) + (len(self.sizes) if self.validate else 0)
+            step = 1
 
-        for input_idx, in_size in enumerate(self.sizes):
-            step = self.log_step(step, num_steps, f"Generating inputs of size {in_size}")
-            left_path, right_path = self.generate_inputs(input_idx, in_size)
+            for input_idx, in_size in enumerate(self.sizes):
+                step = self.log_step(step, num_steps, f"Generating inputs of size {in_size}")
+                left_path, right_path = self.generate_inputs(input_idx, in_size)
 
-            if self.validate:
-                step = self.log_step(step, num_steps, f"Generating validation data")
-                validation_data_path = self.input_data_dir / f"{input_idx}-valid-{in_size}.csv"
-                valid.generate_validation_data(
-                    self.alg_type,
-                    self.data_type,
-                    left_path,
-                    right_path,
-                    validation_data_path
-                )
-            else:
-                validation_data_path = None
-
-            for run in self.runs:
-                step = self.log_step(step, num_steps, f"Benchmarking {run.name} for {in_size}")
-
-                measurement_suffix = f"{run.idx}-{input_idx}-{run.name}-{in_size}"
-                out_data_dir = self.output_data_dir / f"{measurement_suffix}"
-                out_data_dir.mkdir(parents=True)
-
-                measurement_results_path = self.result_dir / f"{measurement_suffix}-time.csv"
-                measurement_output_stats_path = self.result_dir / f"{measurement_suffix}-output_stats.csv"
-
-                run.run(
-                    left_path,
-                    right_path,
-                    self.data_type,
-                    self.iterations,
-                    measurement_results_path,
-                    measurement_output_stats_path,
-                    out_data_dir,
-                    self.keep,
-                    validation_data_path,
-                    verbose
-                )
-
-                last_msg = f"Measured times: {str(measurement_results_path.absolute())}"
-                print(last_msg)
                 if self.validate:
-                    last_msg = f"Result data stats: {str(measurement_output_stats_path.absolute())}"
-                    print(last_msg)
-                print("-" * len(last_msg))
+                    step = self.log_step(step, num_steps, f"Generating validation data")
+                    validation_data_path = self.input_data_dir / f"{input_idx}-valid-{in_size}.csv"
+                    valid.generate_validation_data(
+                        self.alg_type,
+                        self.data_type,
+                        left_path,
+                        right_path,
+                        validation_data_path
+                    )
+                else:
+                    validation_data_path = None
+
+                for run in self.runs:
+                    step = self.log_step(step, num_steps, f"Benchmarking {run.name} for {in_size}")
+
+                    measurement_suffix = f"{run.idx}-{input_idx}-{run.name}-{in_size}"
+                    out_data_dir = self.output_data_dir / f"{measurement_suffix}"
+                    out_data_dir.mkdir(parents=True)
+
+                    measurement_results_path = self.result_dir / f"{measurement_suffix}-time.csv"
+                    measurement_output_stats_path = self.result_dir / f"{measurement_suffix}-output_stats.csv"
+                    try:
+                        run.run(
+                            left_path,
+                            right_path,
+                            self.data_type,
+                            self.iterations,
+                            measurement_results_path,
+                            measurement_output_stats_path,
+                            out_data_dir,
+                            self.keep,
+                            validation_data_path,
+                            verbose
+                        )
+
+                        last_msg = f"Measured times: {str(measurement_results_path.absolute())}"
+                        print(last_msg)
+                        if self.validate:
+                            last_msg = f"Result data stats: {str(measurement_output_stats_path.absolute())}"
+                            print(last_msg)
+                    except execution_error.ExecutionError as e:
+                        self.write_failure_log(failure_log, run, e, input_idx, in_size, left_path, right_path)
+                        last_msg = f"Run failed, see {str(failure_log_path.absolute())}"
+                        print(last_msg)
+                    print("-" * len(last_msg))
         if not self.keep:
-            self.cleanup()
+            self.data_cleanup()
 
 
 def parse_benchmark_config(path: Path):
-    yaml = YAML(typ='safe', pure=True)
     return yaml.load(path)
 
 
@@ -473,7 +541,7 @@ def run_bechmarks(
         valid: validator.Validator,
         benchmark_def_file: Path,
         group_filter: List[str],
-        prevent_overwrite: bool,
+        overwrite: bool,
         out_dir_path: Optional[Path],
         verbose: bool
 ):
@@ -497,11 +565,14 @@ def run_bechmarks(
 
     for group_idx, group in enumerate(groups):
         print(f"-- [{group_idx + 1}/{len(groups)}] Running group {group.name} --")
-        group.run(
-            valid,
-            prevent_overwrite,
-            verbose
-        )
+        try:
+            group.run(
+                valid,
+                overwrite,
+                verbose
+            )
+        except FileExistsError:
+            print("Skip: Output directory already exists. Run with -r|--overwrite to overwrite existing results.")
 
 
 def _run_benchmarks(args: argparse.Namespace):
@@ -510,7 +581,7 @@ def _run_benchmarks(args: argparse.Namespace):
         validator.Validator(args.validator_path),
         args.benchmark_definition_path,
         args.groups,
-        not args.no_overwrite_check,
+        args.overwrite,
         args.output_path,
         args.verbose
     )
@@ -529,9 +600,9 @@ def benchmark_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-o", "--output_path",
                         type=Path,
                         help=f"Output directory path (defaults to the name of the benchmark)")
-    parser.add_argument("--no_overwrite_check",
+    parser.add_argument("-r", "--overwrite",
                         action="store_true",
-                        help="Disable check which prevents overwrite of the output directory")
+                        help="Overwrite any previous runs of any benchmarked group")
     parser.add_argument("-v", "--verbose",
                        action="store_true",
                        help="Increase verbosity of the commandline output")
