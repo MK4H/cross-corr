@@ -20,6 +20,8 @@
 #include "n_to_mn.hpp"
 #include "n_to_m.hpp"
 
+#include "argument_error.hpp"
+
 // Fix filesystem::path not working with program options when argument contains spaces
 // https://stackoverflow.com/questions/68716288/q-boost-program-options-using-stdfilesystempath-as-option-fails-when-the-gi
 namespace std::filesystem {
@@ -85,8 +87,8 @@ void output_measurements(
     } else {
         measurements_file.open(measurements_path);
         to_csv(measurements_file, labels);
-        if (additional_properties.size() != 0) {
-            if (labels.size() != 0) {
+        if (!additional_properties.empty()) {
+            if (!labels.empty()) {
                 measurements_file << ",";
             }
             to_csv(measurements_file, get_labels(additional_properties));
@@ -95,8 +97,8 @@ void output_measurements(
     }
 
     to_csv<std::chrono::nanoseconds>(measurements_file, measurements);
-    if (additional_properties.size() != 0) {
-        if (measurements.size() != 0) {
+    if (!additional_properties.empty()) {
+        if (!measurements.empty()) {
             measurements_file << ",";
         }
         to_csv(measurements_file, get_values(additional_properties));
@@ -531,6 +533,10 @@ int main(int argc, char **argv) {
     }
     catch (po::error& e) {
         std::cerr << "Invalid commandline options: " << e.what() << std::endl;
+        return 1;
+    }
+    catch (argument_error& e) {
+        std::cerr << "Invalid algorithm argument value: " << e.what() << std::endl;
         return 1;
     }
     catch (std::exception& e) {

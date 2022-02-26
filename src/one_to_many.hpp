@@ -7,6 +7,7 @@
 #include "matrix.hpp"
 #include "helpers.cuh"
 #include "stopwatch.hpp"
+#include "argument_error.hpp"
 
 #include "kernels.cuh"
 
@@ -494,11 +495,26 @@ public:
     explicit naive_shift_per_warp_shared_mem_rows_one_to_many(const json& args)
         :one_to_many<T, ALLOC>(false, labels.size()), ref_(), targets_(), results_()
     {
-        shifts_per_block_ = args.value("shifts_per_block", 8);
-        shared_mem_row_size_ = args.value("shared_mem_row_size", 32);
-        shared_mem_rows_ = args.value("shared_mem_rows", shifts_per_block_);
-        strided_load_ = args.value("strided_load", true);
-        right_matrices_per_block_ = args.value("right_matrices_per_block", 8);
+        shifts_per_block_ = args.value(SHIFTS_PER_BLOCK_ARG, 8);
+        shared_mem_row_size_ = args.value(SHARED_MEM_ROW_SIZE_ARG, 32);
+        shared_mem_rows_ = args.value(SHARED_MEM_ROWS_ARG, shifts_per_block_);
+        strided_load_ = args.value(STRIDED_LOAD_ARG, true);
+        right_matrices_per_block_ = args.value(RIGHT_MATRICES_PER_BLOCK_ARG, 8);
+
+        if (shared_mem_rows_ == 0) {
+            shared_mem_rows_ = shifts_per_block_;
+        }
+
+        // TODO: Remove this if we change the implementation to work with fewer
+        //  shared mem rows than shifts per block
+        if (shared_mem_rows_ < shifts_per_block_) {
+            throw argument_error("Invalid number of shared memory rows ["s +
+                                     std::to_string(shared_mem_rows_) +
+                                     "], must be greater than shifts per block [" +
+                                     std::to_string(shifts_per_block_) +
+                                     "]",
+                                     SHARED_MEM_ROWS_ARG);
+        }
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -515,11 +531,11 @@ public:
 
     std::vector<std::pair<std::string, std::string>> additional_properties() const override {
         return std::vector<std::pair<std::string, std::string>>{
-            std::make_pair("shifts_per_block", std::to_string(shifts_per_block_)),
-            std::make_pair("shared_mem_row_size", std::to_string(shared_mem_row_size_)),
-            std::make_pair("shared_mem_rows", std::to_string(shared_mem_rows_)),
-            std::make_pair("strided_load", std::to_string(strided_load_)),
-            std::make_pair("right_matrices_per_block", std::to_string(right_matrices_per_block_))
+            std::make_pair(SHIFTS_PER_BLOCK_ARG, std::to_string(shifts_per_block_)),
+            std::make_pair(SHARED_MEM_ROW_SIZE_ARG, std::to_string(shared_mem_row_size_)),
+            std::make_pair(SHARED_MEM_ROWS_ARG, std::to_string(shared_mem_rows_)),
+            std::make_pair(STRIDED_LOAD_ARG, std::to_string(strided_load_)),
+            std::make_pair(RIGHT_MATRICES_PER_BLOCK_ARG, std::to_string(right_matrices_per_block_))
         };
     }
 
@@ -576,6 +592,12 @@ protected:
 private:
 
     static std::vector<std::string> labels;
+
+    inline static const std::string SHIFTS_PER_BLOCK_ARG = "shifts_per_block";
+    inline static const std::string SHARED_MEM_ROW_SIZE_ARG = "shared_mem_row_size";
+    inline static const std::string SHARED_MEM_ROWS_ARG = "shared_mem_rows";
+    inline static const std::string STRIDED_LOAD_ARG = "strided_load";
+    inline static const std::string RIGHT_MATRICES_PER_BLOCK_ARG = "right_matrices_per_block";
 
     data_array<T, ALLOC> ref_;
     data_array<T, ALLOC> targets_;

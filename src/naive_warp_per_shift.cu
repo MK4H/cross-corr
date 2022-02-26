@@ -12,6 +12,7 @@
 #include "helpers.cuh"
 #include "shared_mem.cuh"
 #include "row_distribution.cuh"
+#include "argument_error.hpp"
 
 namespace cg = cooperative_groups;
 
@@ -591,6 +592,10 @@ __device__ void shared_mem_rows_impl(
     // We just need to handle this when preloading, after that everything should work as intended
     // as we only touch the left rows corresponding to the right rows, so nothing should touch then
     // negative rows
+    // TODO: This needs to be fixed if we want this to work with fewer shared_mem_rows
+    //  than there are warps in a block
+    //  Currently left_buffer_preload_start_row is the row to be loaded corresponding to the
+    //  the value in right buffer to be computed by warp 0 in the block
     int left_buffer_preload_start_row = static_cast<int>(args.block_right_start.y) + args.block_min_y_shift;
     dsize_t left_src_preload_start_row = left_buffer_preload_start_row >= 0 ? left_buffer_preload_start_row : 0;
     dsize_t preload_offset_rows = left_buffer_preload_start_row >= 0 ? 0 : -left_buffer_preload_start_row;
@@ -639,7 +644,6 @@ __device__ void shared_mem_rows_impl(
             stride,
             preload_offset_rows * row_size
         );
-
 
         int left_buffer_start_row = left_buffer_preload_start_row;
         // TODO: Unroll into three loops, start-up, core, finish

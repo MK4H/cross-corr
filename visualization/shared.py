@@ -2,7 +2,7 @@ import re
 import pandas as pd
 
 from pathlib import Path
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 
 class InputSize:
     def __init__(self, rows: int, columns: int, left_matrices: int, right_matrices: int):
@@ -49,13 +49,22 @@ class Run:
     def load(cls, path: Path) -> "Run":
         match = cls.run_result_filename_regex.fullmatch(path.name)
         if match:
+            name = match.group(1)
+            args = match.group(2)
+            input_size = InputSize.from_string(match.group(3))
+            data = pd.read_csv(
+                path
+            )
+
+            data["Name"] = name
+            data["Args"] = args
+            data["Input_size"] = str(input_size)
+
             return cls(
-                match.group(1),
-                match.group(2),
-                InputSize.from_string(match.group(3)),
-                pd.read_csv(
-                    path
-                )
+                name,
+                args,
+                input_size,
+                data
             )
         else:
             raise ValueError(f"Invalid file path {str(path)}")
@@ -83,7 +92,7 @@ class Group:
 
 
 class Benchmark:
-    def __init__(self, name: str, groups: List[Group]):
+    def __init__(self, name: str, groups: Dict[str, Group]):
         self.name = name
         self.groups = groups
 
@@ -95,5 +104,7 @@ class Benchmark:
         groups = [Group.load(group_dir) for group_dir in group_dirs]
         return cls(
             benchmark_dir_path.name,
-            groups
+            {group.name: group for group in groups}
         )
+
+#%%
