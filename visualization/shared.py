@@ -46,7 +46,7 @@ class Run:
         return self.input_size.area()
 
     @classmethod
-    def load(cls, path: Path) -> "Run":
+    def load(cls, path: Path, group_name: str) -> "Run":
         match = cls.run_result_filename_regex.fullmatch(path.name)
         if match:
             name = match.group(1)
@@ -58,7 +58,9 @@ class Run:
 
             data["Name"] = name
             data["Args"] = args
-            data["Input_size"] = str(input_size)
+            data["Input size"] = str(input_size)
+            data["Input items"] = input_size.area() * (input_size.left_matrices + input_size.right_matrices)
+            data["Group"] = group_name
 
             return cls(
                 name,
@@ -81,10 +83,11 @@ class Group:
     def load(cls, group_dir_path: Path) -> "Group":
         match = cls.group_dir_name_regex.fullmatch(group_dir_path.name)
         if match:
+            group_name = match.group(1)
             run_files = group_dir_path.glob("*-time.csv")
-            runs = sorted([Run.load(file) for file in run_files], key=lambda run: run.input_size.area())
+            runs = sorted([Run.load(file, group_name) for file in run_files], key=lambda run: run.input_size.area())
             return cls(
-                match.group(1),
+                group_name,
                 runs
             )
         else:

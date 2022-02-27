@@ -226,20 +226,24 @@ protected:
 
         fft_buffer_size_ = refs_.matrix_size().y * (refs_.matrix_size().x / 2 + 1);
 
-        cuda_malloc(&d_inputs_, refs_.size() + targets_.size());
-        cuda_malloc(&d_results_, results_.size());
-
         auto num_inputs = refs_.num_matrices() + targets_.num_matrices();
 
-        cuda_malloc(&d_inputs_fft_, num_inputs * fft_buffer_size_);
-        cuda_malloc(&d_haddamard_results_, results_.num_matrices() * fft_buffer_size_);
+        CPU_MEASURE(this->label_index(3),
+            cuda_malloc(&d_inputs_, refs_.size() + targets_.size());
+            cuda_malloc(&d_results_, results_.size());
+
+            cuda_malloc(&d_inputs_fft_, num_inputs * fft_buffer_size_);
+            cuda_malloc(&d_haddamard_results_, results_.num_matrices() * fft_buffer_size_);
+        );
 
         int input_sizes[2] = {static_cast<int>(refs_.matrix_size().y), static_cast<int>(refs_.matrix_size().x)};
-        // With nullptr inembed and onembed, the values for istride, idist, ostride and odist are ignored
-        FFTCH(cufftPlanMany(&fft_plan_, 2, input_sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_R2C<T>(), num_inputs));
-
         int result_sizes[2] = {static_cast<int>(results_.matrix_size().y), static_cast<int>(results_.matrix_size().x)};
-        FFTCH(cufftPlanMany(&fft_inv_plan_, 2, result_sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_C2R<T>(), results_.num_matrices()));
+        CPU_MEASURE(this->label_index(4),
+            // With nullptr inembed and onembed, the values for istride, idist, ostride and odist are ignored
+            FFTCH(cufftPlanMany(&fft_plan_, 2, input_sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_R2C<T>(), num_inputs));
+
+            FFTCH(cufftPlanMany(&fft_inv_plan_, 2, result_sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_C2R<T>(), results_.num_matrices()));
+        );
     }
 
     void transfer_impl() override {
@@ -309,7 +313,9 @@ template<typename T, bool DEBUG, typename ALLOC>
 std::vector<std::string> fft_better_hadamard_alg_n_to_m<T, DEBUG, ALLOC>::labels{
     "Forward FFT",
     "Hadamard",
-    "Inverse FFT"
+    "Inverse FFT",
+    "Allocation",
+    "Plan"
 };
 
 
