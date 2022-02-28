@@ -4,6 +4,7 @@ import pandas as pd
 from pathlib import Path
 from typing import List, Optional, Any, Dict
 
+
 class InputSize:
     def __init__(self, rows: int, columns: int, left_matrices: int, right_matrices: int):
         self.rows = rows
@@ -29,8 +30,17 @@ class InputSize:
     def __str__(self):
         return f"{self.rows}_{self.columns}_{self.left_matrices}_{self.right_matrices}"
 
-    def area(self) -> int:
+    def __eq__(self, other):
+        return self.rows == other.rows and \
+               self.columns == other.columns and \
+               self.left_matrices == other.left_matrices and \
+               self.right_matrices == other.right_matrices
+
+    def matrix_area(self) -> int:
         return self.rows * self.columns
+
+    def total_items(self) -> int:
+        return self.matrix_area() * (self.left_matrices + self.right_matrices)
 
 
 class Run:
@@ -42,8 +52,8 @@ class Run:
 
     run_result_filename_regex = re.compile("^[0-9]+-[0-9]+-(.*)__(.*)__-([0-9]+_[0-9]+_[0-9]+_[0-9]+)-time.csv$")
 
-    def input_area(self) -> int:
-        return self.input_size.area()
+    def matrix_area(self) -> int:
+        return self.input_size.matrix_area()
 
     @classmethod
     def load(cls, path: Path, group_name: str) -> "Run":
@@ -59,7 +69,13 @@ class Run:
             data["Name"] = name
             data["Args"] = args
             data["Input size"] = str(input_size)
-            data["Input items"] = input_size.area() * (input_size.left_matrices + input_size.right_matrices)
+            data["Input total items"] = input_size.total_items()
+            data["Input matrix rows"] = input_size.rows
+            data["Input matrix cols"] = input_size.columns
+            data["Input matrix area"] = input_size.matrix_area()
+            data["Input left matrices"] = input_size.left_matrices
+            data["Input right matrices"] = input_size.right_matrices
+            data["Input type"] = f"{input_size.left_matrices}x{input_size.right_matrices}"
             data["Group"] = group_name
 
             return cls(
@@ -85,7 +101,7 @@ class Group:
         if match:
             group_name = match.group(1)
             run_files = group_dir_path.glob("*-time.csv")
-            runs = sorted([Run.load(file, group_name) for file in run_files], key=lambda run: run.input_size.area())
+            runs = sorted([Run.load(file, group_name) for file in run_files], key=lambda run: run.input_size.total_items())
             return cls(
                 group_name,
                 runs
