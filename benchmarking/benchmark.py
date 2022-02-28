@@ -11,6 +11,7 @@ import input_generator
 from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path
 from abc import ABC, abstractmethod
+from enum import Enum
 
 from ruamel.yaml import YAML
 
@@ -20,6 +21,13 @@ DEFAULT_OUTPUT_PATH = Path.cwd() / "output"
 DEFAULT_ITERATIONS = 100
 
 yaml = YAML(typ='safe', pure=True)
+
+
+class ExistingResultsPolicy(Enum):
+    FAIL = 0
+    DELETE = 1
+    CONTINUE = 2
+
 
 class Run(ABC):
     def __init__(
@@ -164,13 +172,13 @@ class InternalRun(Run):
             result_times_path: Path,
             result_stats_path: Path,
             out_data_dir: Path,
-            keep_outputs: bool,
+            keep_output: bool,
             validation_data_path: Optional[Path],
             verbose: bool
     ):
         for iteration in range(iterations):
             print(f"Iteration {iteration + 1}/{iterations}", end="\r")
-            out_data_path = out_data_dir / (f"{iteration}.csv" if keep_outputs else "out.csv")
+            out_data_path = out_data_dir / (f"{iteration}.csv" if keep_output else "out.csv")
             self.exe.run_benchmark(
                 self.algorithm,
                 data_type,
@@ -200,7 +208,14 @@ class ExternalRun(Run):
         self.script = benchmark_script.BenchmarkScript(script_path)
 
     @classmethod
-    def from_dict(cls, idx: int, exe: executable.Executable, base_dir_path: Path, input_data_dir: Path, data) -> List["ExternalRun"]:
+    def from_dict(
+            cls,
+            idx: int,
+            exe: executable.Executable,
+            base_dir_path: Path,
+            input_data_dir: Path,
+            data
+    ) -> List["ExternalRun"]:
         alg_type = data["alg_type"]
         name = data["name"] if "name" in data else f"{idx}_{alg_type}"
         script_path = Path(data["path"])
@@ -231,7 +246,7 @@ class ExternalRun(Run):
             result_times_path: Path,
             result_stats_path: Path,
             out_data_dir: Path,
-            keep_outputs: bool,
+            keep_output: bool,
             validation_data_path: Optional[Path],
             verbose: bool
             ):
@@ -261,7 +276,7 @@ class GlobalConfig:
             data_type: Optional[str],
             iterations: Optional[int],
             validate: Optional[bool],
-            keep: Optional[bool],
+            keep_output: Optional[bool],
     ):
         """
 
@@ -271,7 +286,7 @@ class GlobalConfig:
         :param data_type: Default data type to be used
         :param iterations: Default number of iterations of each benchmark
         :param validate: Default flag if the outputs should be validated
-        :param keep: Default flag if outputs of each iterations should be kept
+        :param keep_output: Default flag if outputs of each iterations should be kept
         """
         self.base_dir_path = base_dir_path
         self.output_path = output_path
@@ -279,7 +294,7 @@ class GlobalConfig:
         self.data_type = data_type
         self.iterations = iterations
         self.validate = validate
-        self.keep = keep
+        self.keep_output = keep_output
 
     @property
     def data_path(self):
@@ -298,8 +313,225 @@ class GlobalConfig:
             data["data_type"] if "data_type" in data else None,
             int(data["iterations"]) if "iterations" in data else None,
             bool(data["validate"]) if "validate" in data else None,
-            bool(data["keep"]) if "keep" in data else None
+            bool(data["keep_output"]) if "keep_output" in data else None
         )
+
+
+class Logger:
+    def __init__(self, num_steps: int, verbose: bool, failure_log_path: Path):
+        self.num_steps = num_steps
+        self.step = 1
+        self.verbose = verbose
+        self.failure_log_path = failure_log_path
+        self.last_msg = ""
+
+    def __enter__(self):
+        self.failure_log = self.failure_log_path.open("a")
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.failure_log.close()
+
+    def log_step(self, message: str, *, skip=False) -> None:
+        skip_message = " SKIP:" if skip else ""
+        print(f"[{self.step}/{self.num_steps}]{skip_message} {message}")
+        self.step += 1
+
+    def log_failure(
+            self,
+            run: Run,
+            error: execution_error.ExecutionError,
+            input_idx: int,
+            in_size: input_size.InputSize,
+            left_path: Path,
+            right_path: Path
+    ):
+        # Append it as a single entry list, so that together all appends create one big top level list
+        data = [{
+            "run": run.to_dict(),
+            "input": {
+                "idx": input_idx,
+                "size": in_size.to_dict(),
+                "left": str(left_path),
+                "right": str(right_path),
+            },
+            "error": error.to_dict(),
+        }]
+        yaml.dump(data, self.failure_log)
+
+    def log(self, message):
+        print(message)
+        self.last_msg = message
+
+    def underline_last_message(self):
+        print("-"*len(self.last_msg))
+
+
+class InputSizeSubgroup:
+    def __init__(
+            self,
+            group: "Group",
+            group_execution: "GroupExecution",
+            logger: Logger,
+            in_idx: int,
+            in_size: input_size.InputSize,
+            left_path: Path,
+            right_path: Path,
+            validation_data_path: Optional[Path],
+    ):
+        self.group = group
+        self.group_execution = group_execution
+        self.logger = logger
+        self.index = in_idx
+        self.input_size = in_size
+        self.left_path = left_path
+        self.right_path = right_path
+        self.validation_data_path = validation_data_path
+
+    @classmethod
+    def generate_inputs(
+            cls,
+            group: "Group",
+            group_execution: "GroupExecution",
+            logger: Logger,
+            in_idx: int,
+            in_size: input_size.InputSize,
+            valid: Optional[validator.Validator]
+    ) -> "InputSizeSubgroup":
+        left_path = group.input_data_dir / f"{in_idx}-left-{in_size}.csv"
+        right_path = group.input_data_dir / f"{in_idx}-right-{in_size}.csv"
+        validation_data_path = group.input_data_dir / f"{in_idx}-valid-{in_size}.csv"
+        if valid is None:
+            validation_data_path = None
+
+        generated_inputs = False
+        if (group_execution.existing_results == ExistingResultsPolicy.CONTINUE and
+                left_path.exists() and
+                right_path.exists()):
+            logger.log_step(f"Generating inputs of size {in_size}", skip=True)
+        else:
+            logger.log_step(f"Generating inputs of size {in_size}")
+            input_generator.generate_matrices(in_size.left_matrices, in_size.rows, in_size.columns,
+                                              input_generator.OutputFormats.CSV, left_path)
+            input_generator.generate_matrices(in_size.right_matrices, in_size.rows, in_size.columns,
+                                              input_generator.OutputFormats.CSV, right_path)
+            generated_inputs = True
+
+        if valid is not None and (generated_inputs or not validation_data_path.exists()):
+            logger.log_step(f"Generating validation data")
+            tmp_validation_data_path = group.input_data_dir / f"{in_idx}-valid-{in_size}.tmp.csv"
+            valid.generate_validation_data(
+                group.alg_type,
+                group.data_type,
+                left_path,
+                right_path,
+                tmp_validation_data_path
+            )
+            # To make sure the validation data is not corrupted by cancellation or something
+            # This should ensure that the whole uncorrupted validation data can only exist
+            tmp_validation_data_path.rename(validation_data_path)
+        else:
+            logger.log_step(f"Generating validation data", skip=True)
+
+        return cls(group, group_execution, logger, in_idx, in_size, left_path, right_path, validation_data_path)
+
+    def get_run_result_paths(self, run: Run) -> Tuple[Path, Path, Path]:
+        measurement_suffix = f"{run.idx}-{self.index}-{run.name}-{self.input_size}"
+        out_data_dir = self.group.output_data_dir / f"{measurement_suffix}"
+
+        measurement_results_path = self.group.result_dir / f"{measurement_suffix}-time.csv"
+        measurement_output_stats_path = self.group.result_dir / f"{measurement_suffix}-output_stats.csv"
+
+        return out_data_dir, measurement_results_path, measurement_output_stats_path
+
+    def execute_runs(self):
+        for run in self.group.runs:
+            out_data_dir, measurement_results_path, measurement_output_stats_path = \
+                self.get_run_result_paths(run)
+
+            skip = (measurement_results_path.exists() and
+                    (self.validation_data_path is None or measurement_output_stats_path.exists()))
+
+            self.logger.log_step(f"Benchmarking {run.name} for {self.input_size}", skip=skip)
+
+            try:
+                if not skip:
+                    out_data_dir.mkdir(exist_ok=self.group_execution.existing_results == ExistingResultsPolicy.CONTINUE, parents=True)
+                    run.run(
+                        self.left_path,
+                        self.right_path,
+                        self.group.data_type,
+                        self.group.iterations,
+                        self.group_execution.tmp_results_path,
+                        self.group_execution.tmp_output_stats_path,
+                        out_data_dir,
+                        self.group.keep_output,
+                        self.validation_data_path,
+                        self.logger.verbose
+                    )
+
+                    self.group_execution.tmp_results_path.rename(measurement_results_path)
+                    if self.validation_data_path is not None:
+                        self.group_execution.tmp_output_stats_path.rename(measurement_output_stats_path)
+
+                self.logger.log(f"Measured times: {str(measurement_results_path.absolute())}")
+                if self.validation_data_path is not None:
+                    self.logger.log(f"Result data stats: {str(measurement_output_stats_path.absolute())}")
+            except execution_error.ExecutionError as e:
+                self.logger.log_failure(run, e, self.index, self.input_size, self.left_path, self.right_path)
+                self.logger.log(f"Run failed, see {str(self.logger.failure_log_path.absolute())}")
+            self.logger.underline_last_message()
+
+
+class GroupExecution:
+    def __init__(self, group: "Group", existing_results: ExistingResultsPolicy):
+        self.group = group
+        self.step = 1
+        self.tmp_results_path = group.result_dir / "time.tmp.csv"
+        self.tmp_output_stats_path = group.result_dir / "output_stats.tmp.csv"
+        self.failure_log_path = group.result_dir / "failed_runs.yml"
+        self.existing_results = existing_results
+
+    def clean_inputs(self):
+        shutil.rmtree(self.group.input_data_dir, ignore_errors=True)
+
+    def clean_outputs(self):
+        shutil.rmtree(self.group.output_data_dir, ignore_errors=True)
+
+    def prepare_directories(self):
+        delete = self.existing_results == ExistingResultsPolicy.DELETE
+        cont = self.existing_results == ExistingResultsPolicy.CONTINUE
+        if delete:
+            shutil.rmtree(self.group.result_dir, ignore_errors=True)
+        self.group.result_dir.mkdir(exist_ok=cont, parents=True)
+
+        # If FAIL, the results have been cleared so we can just delete data anyway
+        # as they are useless without results
+        if not cont:
+            self.clean_inputs()
+            self.clean_outputs()
+
+        self.group.input_data_dir.mkdir(exist_ok=cont, parents=True)
+        self.group.output_data_dir.mkdir(exist_ok=cont, parents=True)
+
+        self.tmp_results_path.unlink(missing_ok=True)
+        self.tmp_output_stats_path.unlink(missing_ok=True)
+
+    def run(self, verbose: bool, valid: Optional[validator.Validator]):
+        num_steps = len(self.group.sizes) * len(self.group.runs) + len(self.group.sizes) + (
+            len(self.group.sizes) if self.group.validate else 0)
+        with Logger(num_steps, verbose, self.failure_log_path) as logger:
+            for input_idx, in_size in enumerate(self.group.sizes):
+                subgroup = InputSizeSubgroup.generate_inputs(
+                    self.group,
+                    self,
+                    logger,
+                    input_idx,
+                    in_size,
+                    valid
+                )
+
+                subgroup.execute_runs()
 
 
 class Group:
@@ -315,7 +547,7 @@ class Group:
             output_data_dir: Path,
             iterations: int,
             validate: bool,
-            keep: bool
+            keep_output: bool
     ):
         self.name = name
         self.runs = runs
@@ -327,7 +559,7 @@ class Group:
         self.output_data_dir = output_data_dir
         self.iterations = iterations
         self.validate = validate
-        self.keep = keep
+        self.keep_output = keep_output
 
     @staticmethod
     def _config_from_dict(
@@ -335,25 +567,28 @@ class Group:
             global_config: GlobalConfig
     ) -> Tuple[Optional[List[input_size.InputSize]], Optional[str], Optional[int], Optional[bool], Optional[bool]]:
         if data is None:
-            return global_config.sizes, global_config.data_type, global_config.iterations, global_config.validate, global_config.keep
+            return global_config.sizes, global_config.data_type, global_config.iterations, global_config.validate, global_config.keep_output
         sizes = [input_size.InputSize.from_dict_or_string(in_size) for in_size in data["sizes"]] if "sizes" in data else global_config.sizes
         data_type = data["data_type"] if "data_type" in data else "single"
         iterations = int(data["iterations"]) if "iterations" in data else global_config.iterations
         validate = bool(data["validate"]) if "validate" in data else global_config.validate
-        keep = bool(data["keep"]) if "keep" in data else global_config.keep
+        keep = bool(data["keep_output"]) if "keep_output" in data else global_config.keep_output
 
         return sizes, data_type, iterations, validate, keep
 
     @classmethod
     def from_dict(cls, data, global_config: GlobalConfig, index: int, exe: executable.Executable):
         name = str(data['name']) if "name" in data else str(index)
-        sizes, data_type, iterations, validate, keep = cls._config_from_dict(data.get("config", None), global_config)
+        sizes, data_type, iterations, validate, keep_output = cls._config_from_dict(
+            data.get("config", None),
+            global_config
+        )
 
         assert sizes is not None, "Missing list of sizes"
         assert data_type is not None, "Missing data type"
         assert iterations is not None, "Missing number of iterations"
         validate = validate if validate is not None else False
-        keep = keep if keep is not None else False
+        keep_output = keep_output if keep_output is not None else False
 
         assert len(sizes) != 0, "No input sizes given"
         assert iterations > 0, f"Invalid number of iterations \"{iter}\" given"
@@ -366,7 +601,10 @@ class Group:
         output_data_dir = group_data_dir / "outputs"
         try:
             # Load warps of runs and flatten them into a list of runs
-            runs = list(itertools.chain.from_iterable([Run.from_dict(run_idx, exe, global_config.base_dir_path, input_data_dir, run) for run_idx, run in enumerate(data["runs"])]))
+            runs = list(itertools.chain.from_iterable(
+                [Run.from_dict(run_idx, exe, global_config.base_dir_path, input_data_dir, run)
+                 for run_idx, run in enumerate(data["runs"])])
+            )
         except ValueError as e:
             print(f"Failed to load runs: {e}", file=sys.stderr)
             sys.exit(1)
@@ -389,7 +627,19 @@ class Group:
                 )
                 sys.exit(1)
 
-        return cls(name, runs, alg_type, sizes, data_type, group_dir, input_data_dir, output_data_dir, iterations, validate, keep)
+        return cls(
+            name,
+            runs,
+            alg_type,
+            sizes,
+            data_type,
+            group_dir,
+            input_data_dir,
+            output_data_dir,
+            iterations,
+            validate,
+            keep_output,
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -399,73 +649,20 @@ class Group:
                 "iterations": self.iterations,
                 "sizes": [size.to_dict() for size in self.sizes],
                 "validate": self.validate,
-                "keep": self.keep,
+                "keep_output": self.keep_output,
             },
             "runs": [run.to_dict() for run in self.runs]
         }
 
-    def generate_inputs(
-            self,
-            index: int,
-            size: input_size.InputSize,
-    ) -> Tuple[Path, Path]:
-        left_path = self.input_data_dir / (
-            f"{index}-left-{size}.csv" if self.keep else "left.csv")
-        right_path = self.input_data_dir / (
-            f"{index}-right-{size}.csv" if self.keep else "right.csv")
-
-        input_generator.generate_matrices(size.left_matrices, size.rows, size.columns,
-                                          input_generator.OutputFormats.CSV, left_path)
-        input_generator.generate_matrices(size.right_matrices, size.rows, size.columns,
-                                          input_generator.OutputFormats.CSV, right_path)
-
-        return left_path, right_path
-
-    def data_cleanup(self):
-        shutil.rmtree(self.input_data_dir, ignore_errors=True)
-        shutil.rmtree(self.output_data_dir, ignore_errors=True)
-
-    def log_step(self, step: int, num_steps: int, message: str) -> int:
-        print(f"[{step}/{num_steps}] {message}")
-        return step + 1
-
-    def write_failure_log(
-            self,
-            failure_log,
-            run: Run,
-            error: execution_error.ExecutionError,
-            input_idx: int,
-            in_size: input_size.InputSize,
-            left_path: Path,
-            right_path: Path
-    ):
-        # Append it as a single entry list, so that together all appends create one big top level list
-        data = [{
-            "run": run.to_dict(),
-            "input": {
-                "idx": input_idx,
-                "size": in_size.to_dict(),
-                "left": str(left_path),
-                "right": str(right_path),
-            },
-            "error": error.to_dict(),
-        }]
-        yaml.dump(data, failure_log)
-
     def run(
             self,
             valid: validator.Validator,
-            overwrite: bool,
+            existing_results: ExistingResultsPolicy,
             verbose: bool
     ):
-        if overwrite:
-            shutil.rmtree(self.result_dir, ignore_errors=True)
-        self.result_dir.mkdir(exist_ok=False, parents=True)
+        execution = GroupExecution(self, existing_results)
 
-        self.data_cleanup()
-
-        self.input_data_dir.mkdir(parents=True)
-        self.output_data_dir.mkdir(parents=True)
+        execution.prepare_directories()
 
         with (self.result_dir / "group_definition.yml").open("w") as definition:
             yaml.dump(self.to_dict(), definition)
@@ -473,79 +670,21 @@ class Group:
         for run in self.runs:
             run.prepare()
 
-        failure_log_path = self.result_dir / "failed_runs.yml"
-        with failure_log_path.open("a") as failure_log:
-            num_steps = len(self.sizes) * len(self.runs) + len(self.sizes) + (len(self.sizes) if self.validate else 0)
-            step = 1
-
-            for input_idx, in_size in enumerate(self.sizes):
-                step = self.log_step(step, num_steps, f"Generating inputs of size {in_size}")
-                left_path, right_path = self.generate_inputs(input_idx, in_size)
-
-                if self.validate:
-                    step = self.log_step(step, num_steps, f"Generating validation data")
-                    validation_data_path = self.input_data_dir / f"{input_idx}-valid-{in_size}.csv"
-                    valid.generate_validation_data(
-                        self.alg_type,
-                        self.data_type,
-                        left_path,
-                        right_path,
-                        validation_data_path
-                    )
-                else:
-                    validation_data_path = None
-
-                for run in self.runs:
-                    step = self.log_step(step, num_steps, f"Benchmarking {run.name} for {in_size}")
-
-                    measurement_suffix = f"{run.idx}-{input_idx}-{run.name}-{in_size}"
-                    out_data_dir = self.output_data_dir / f"{measurement_suffix}"
-                    out_data_dir.mkdir(parents=True)
-
-                    measurement_results_path = self.result_dir / f"{measurement_suffix}-time.csv"
-                    measurement_output_stats_path = self.result_dir / f"{measurement_suffix}-output_stats.csv"
-                    try:
-                        run.run(
-                            left_path,
-                            right_path,
-                            self.data_type,
-                            self.iterations,
-                            measurement_results_path,
-                            measurement_output_stats_path,
-                            out_data_dir,
-                            self.keep,
-                            validation_data_path,
-                            verbose
-                        )
-
-                        last_msg = f"Measured times: {str(measurement_results_path.absolute())}"
-                        print(last_msg)
-                        if self.validate:
-                            last_msg = f"Result data stats: {str(measurement_output_stats_path.absolute())}"
-                            print(last_msg)
-                    except execution_error.ExecutionError as e:
-                        self.write_failure_log(failure_log, run, e, input_idx, in_size, left_path, right_path)
-                        last_msg = f"Run failed, see {str(failure_log_path.absolute())}"
-                        print(last_msg)
-                    print("-" * len(last_msg))
-        if not self.keep:
-            self.data_cleanup()
+        execution.run(verbose, valid if self.validate else None)
+        if not self.keep_output:
+            execution.clean_outputs()
 
 
 def parse_benchmark_config(path: Path):
     return yaml.load(path)
 
 
-def run_bechmarks(
+def parse_benchmark(
         exe: executable.Executable,
-        valid: validator.Validator,
         benchmark_def_file: Path,
         group_filter: List[str],
-        overwrite: bool,
         out_dir_path: Optional[Path],
-        verbose: bool
-):
-
+) -> Tuple[Path, List[Group]]:
     definition = parse_benchmark_config(benchmark_def_file)
     benchmark = definition["benchmark"]
     name = benchmark["name"]
@@ -563,27 +702,86 @@ def run_bechmarks(
     if len(group_filter) != 0:
         groups = [group for group in groups if group.name in group_filter]
 
+    return out_dir_path, groups
+
+
+def run_benchmarks(
+        exe: executable.Executable,
+        valid: validator.Validator,
+        benchmark_def_file: Path,
+        group_filter: List[str],
+        existing_results: ExistingResultsPolicy,
+        out_dir_path: Optional[Path],
+        verbose: bool
+):
+    _, groups = parse_benchmark(
+        exe,
+        benchmark_def_file,
+        group_filter,
+        out_dir_path
+    )
+
     for group_idx, group in enumerate(groups):
         print(f"-- [{group_idx + 1}/{len(groups)}] Running group {group.name} --")
         try:
             group.run(
                 valid,
-                overwrite,
+                existing_results,
                 verbose
             )
         except FileExistsError:
-            print("Skip: Output directory already exists. Run with -r|--overwrite to overwrite existing results.")
+            print("Output directory already exists. Run with -r|--rerun to overwrite existing results or -c|--cont to continue computation.", file=sys.stderr)
+            raise
+
+
+def clear_benchmark(
+        exe: executable.Executable,
+        benchmark_def_file: Path,
+        group_filter: List[str],
+        out_dir_path: Optional[Path],
+):
+    out_dir_path, groups = parse_benchmark(
+        exe,
+        benchmark_def_file,
+        group_filter,
+        out_dir_path
+    )
+
+    if len(group_filter) == 0:
+        print(f"Delete {out_dir_path.absolute()}")
+        shutil.rmtree(out_dir_path)
+    else:
+        for group in groups:
+            print(f"Delete group directories: {group.result_dir.absolute()}, {group.input_data_dir.absolute()}, {group.output_data_dir.absolute()}")
+            shutil.rmtree(group.result_dir)
+            shutil.rmtree(group.input_data_dir)
+            shutil.rmtree(group.output_data_dir)
 
 
 def _run_benchmarks(args: argparse.Namespace):
-    run_bechmarks(
+    existing_results_policy = ExistingResultsPolicy.FAIL
+    if args.rerun:
+        existing_results_policy = existing_results_policy.DELETE
+    elif args.cont:
+        existing_results_policy = existing_results_policy.CONTINUE
+
+    run_benchmarks(
         executable.Executable(args.executable_path),
         validator.Validator(args.validator_path),
         args.benchmark_definition_path,
         args.groups,
-        args.overwrite,
+        existing_results_policy,
         args.output_path,
         args.verbose
+    )
+
+
+def _clear_benchmark(args: argparse.Namespace):
+    clear_benchmark(
+        executable.Executable(args.executable_path),
+        args.benchmark_definition_path,
+        args.groups,
+        args.output_path,
     )
 
 
@@ -597,12 +795,19 @@ def _list_algs(args: argparse.Namespace):
 
 
 def benchmark_arguments(parser: argparse.ArgumentParser):
+    existing_results_flags = parser.add_mutually_exclusive_group()
+
+    existing_results_flags.add_argument("-r", "--rerun",
+                        action="store_true",
+                        help="Overwrite any previous runs of any of the benchmarked groups")
+    existing_results_flags.add_argument("-c", "--cont",
+                                        action="store_true",
+                                        help="Continue benchmarking, skipping any existing results")
+
     parser.add_argument("-o", "--output_path",
                         type=Path,
                         help=f"Output directory path (defaults to the name of the benchmark)")
-    parser.add_argument("-r", "--overwrite",
-                        action="store_true",
-                        help="Overwrite any previous runs of any benchmarked group")
+
     parser.add_argument("-v", "--verbose",
                        action="store_true",
                        help="Increase verbosity of the commandline output")
@@ -615,6 +820,21 @@ def benchmark_arguments(parser: argparse.ArgumentParser):
                         help="Groups to run, all by default"
     )
     parser.set_defaults(action=_run_benchmarks)
+
+
+def clear_benchmark_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument("-o", "--output_path",
+                        type=Path,
+                        help=f"Output directory path (defaults to the name of the benchmark)")
+    parser.add_argument("benchmark_definition_path",
+                        type=Path,
+                        help="Path to the benchmark definition YAML file")
+    parser.add_argument("groups",
+                        type=str,
+                        nargs="*",
+                        help="Groups to run, all by default"
+    )
+    parser.set_defaults(action=_clear_benchmark)
 
 
 def list_algs_arguments(parser: argparse.ArgumentParser):
@@ -639,6 +859,7 @@ def main():
                                              description="Generating and transforming input")
     benchmark_arguments(subparsers.add_parser("benchmark", help="Run benchmarks"))
     list_algs_arguments(subparsers.add_parser("list", help="List algorithms"))
+    clear_benchmark_arguments(subparsers.add_parser("clear", help="Clear benchmark"))
 
     args = parser.parse_args()
     args.action(args)

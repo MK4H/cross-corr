@@ -25,6 +25,7 @@ def main():
                                              description="Tools for benchmarking")
     benchmark.benchmark_arguments(subparsers.add_parser("benchmark", help="Run benchmarks"))
     benchmark.list_algs_arguments(subparsers.add_parser("list", help="List algorithms"))
+    benchmark.clear_benchmark_arguments(subparsers.add_parser("clear", help="Clear benchmark"))
     input_generator.generator_arguments(subparsers.add_parser("generate", help="Generate input"))
     input_generator.transformer_arguments(subparsers.add_parser("transform", help="Transform input data arrays"))
 
