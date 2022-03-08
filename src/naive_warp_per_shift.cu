@@ -452,7 +452,7 @@ __global__ void ccn_shift_per_warp_simple_indexing(
  */
 template<dsize_t NUM_RIGHT, typename T, typename RES>
 __device__ void compute_from_shared_mem_buffers(
-    cg::thread_block_tile<warp_size> warp,
+    const cg::thread_block_tile<warp_size>& warp,
     const shared_mem_buffer<T>& left_buffer,
     const shared_mem_buffer<T>(&right_buffers)[NUM_RIGHT],
     int left_buffer_start_row,
@@ -570,8 +570,8 @@ __device__ shared_mem_rows_impl_args<T, RES> create_shared_mem_rows_impl_args(
 
 template<dsize_t NUM_RIGHT, bool STRIDED_LOAD, typename T, typename RES>
 __device__ void shared_mem_rows_impl(
-    cg::thread_block ctb,
-    cg::thread_block_tile<warp_size> warp,
+    const cg::thread_block& ctb,
+    const cg::thread_block_tile<warp_size>& warp,
     shared_mem_rows_impl_args<T, RES> args
 ) {
     int warp_y_shift = args.block_min_y_shift + static_cast<int>(warp.meta_group_rank());

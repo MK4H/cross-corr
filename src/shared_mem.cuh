@@ -76,7 +76,7 @@ public:
         return size_;
     }
 
-    // __device__ size_type load(cg::thread_block ctb, row_slice<T>&& slice, dsize_t size, dsize_t offset = 0) {
+    // __device__ size_type load(const cg::thread_block& ctb, row_slice<T>&& slice, dsize_t size, dsize_t offset = 0) {
     //     // TODO: Asserts
     //     size_type copy_size = min(size, slice.size());
     //     auto data = data_ + offset;
@@ -87,7 +87,7 @@ public:
     // }
 
     template<bool STRIDED_LOAD>
-    __device__ size_type load_continuous(cg::thread_block ctb, const T* src, dsize_t size, dsize_t offset = 0) {
+    __device__ size_type load_continuous(const cg::thread_block& ctb, const T* src, dsize_t size, dsize_t offset = 0) {
         if (STRIDED_LOAD) {
             load_continuous_chunk_strided_warps(ctb, src, size, offset);
         } else {
@@ -95,7 +95,7 @@ public:
         }
     }
 
-    __device__ size_type load_continuous_chunk_continuous_warps(cg::thread_block ctb, const T* src, dsize_t size, dsize_t offset = 0) {
+    __device__ size_type load_continuous_chunk_continuous_warps(const cg::thread_block& ctb, const T* src, dsize_t size, dsize_t offset = 0) {
         constexpr dsize_t warp_size = 32;
         auto warp = cg::tiled_partition<warp_size>(ctb);
 
@@ -112,7 +112,7 @@ public:
         return copy_size;
     }
 
-    __device__ size_type load_continuous_chunk_strided_warps(cg::thread_block ctb, const T* src, dsize_t size, dsize_t offset = 0) {
+    __device__ size_type load_continuous_chunk_strided_warps(const cg::thread_block& ctb, const T* src, dsize_t size, dsize_t offset = 0) {
         size_type copy_size = min(size, size_ - offset);
         auto data = data_ + offset;
         for (size_type i = ctb.thread_rank(); i < copy_size; i += ctb.size()) {
@@ -123,7 +123,7 @@ public:
 
     template<bool STRIDED_LOAD>
     __device__ size_type load_strided_chunks(
-        cg::thread_block ctb,
+        const cg::thread_block& ctb,
         const T* src,
         dsize_t chunk_size,
         dsize_t num_chunks,
@@ -138,7 +138,7 @@ public:
     }
 
     __device__ size_type load_strided_chunks_continuous_warps(
-        cg::thread_block ctb,
+        const cg::thread_block& ctb,
         const T* src,
         dsize_t chunk_size,
         dsize_t num_chunks,
@@ -195,7 +195,7 @@ public:
     }
 
     __device__ size_type load_strided_chunks_strided_warps(
-        cg::thread_block ctb,
+        const cg::thread_block& ctb,
         const T* src,
         dsize_t chunk_size,
         dsize_t num_chunks,

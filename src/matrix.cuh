@@ -192,7 +192,7 @@ public:
         return slice_.size();
     }
 
-    __device__ size_type load(cg::thread_block ctb, row_slice<T>&& slice) {
+    __device__ size_type load(const cg::thread_block& ctb, row_slice<T>&& slice) {
         // TODO: Assert slice size <= buffer size
         slice_ = std::move(slice);
         return buffer_.load(ctb, slice_.data(), slice_.size());
@@ -218,7 +218,7 @@ public:
     using const_reference = const value_type&;
 
     __device__ row_ring_buffer(
-        cg::thread_block ctb,
+        const cg::thread_block& ctb,
         SLICE src,
         shared_mem_buffer<T> buffer
     )
@@ -234,7 +234,7 @@ public:
         // the matrix, which is caught by clamping in the load method and clamped to 0
     }
 
-    __device__ dsize_t load_next_parts(cg::thread_block ctb, dsize_t num_parts) {
+    __device__ dsize_t load_next_parts(const cg::thread_block& ctb, dsize_t num_parts) {
         dsize_t load_size = 0;
         for (dsize_t i = 0; i < num_parts; ++i) {
             load_size += load_next(ctb);
@@ -242,7 +242,7 @@ public:
         return load_size;
     }
 
-    __device__ size_t load_next(cg::thread_block ctb) {
+    __device__ size_t load_next(const cg::thread_block& ctb) {
         dsize_t load_size = load_part(
             ctb,
             tail_,

@@ -41,7 +41,7 @@ TODO: Try using the whole warp for computation of a single shift
 */
 
 template<typename T>
-__device__ dsize_t load_row_chunk(cg::thread_block ctb, T* dst, const T* src, dsize_t row_start, dsize_t row_size, dsize_t chunk_start, dsize_t chunk_size) {
+__device__ dsize_t load_row_chunk(const cg::thread_block& ctb, T* dst, const T* src, dsize_t row_start, dsize_t row_size, dsize_t chunk_start, dsize_t chunk_size) {
     dsize_t copy_size = min(row_size - chunk_start, chunk_size);
     for (; chunk_start + ctb.thread_index().x < copy_size; chunk_start += ctb.size()) {
         dst[ctb.thread_index().x] = src[row_start + chunk_start + ctb.thread_index().x];
@@ -145,7 +145,7 @@ __device__ dsize_t load_row_chunk(cg::thread_block ctb, T* dst, const T* src, ds
 
 //     }
 
-//     __device__ void load(cg::thread_block ctb, const T* src, dsize2_t pos) {
+//     __device__ void load(const cg::thread_block& ctb, const T* src, dsize2_t pos) {
 
 //     }
 

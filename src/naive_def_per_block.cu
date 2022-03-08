@@ -15,7 +15,7 @@ namespace cross {
 
 template<typename T, typename RES>
 __device__ void cross_corr_serial_shifts(
-    cg::thread_block ctb,
+    const cg::thread_block& ctb,
     const matrix_slice<T>& m1,
     const matrix_slice<T>& m2,
     matrix_slice<RES>& out

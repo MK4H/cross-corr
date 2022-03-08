@@ -131,7 +131,7 @@ __device__ warp_shuffle_impl_args<T, RES> create_warp_shuffle_impl_args(
 
 template<dsize_t NUM_RIGHTS, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
 __device__ void warp_shuffle_impl(
-    cg::thread_block_tile<WARP_SIZE> warp,
+    const cg::thread_block_tile<WARP_SIZE>& warp,
     warp_shuffle_impl_args<T, RES> args
 ) {
     // Compute the given shift for num_rights right matrices
