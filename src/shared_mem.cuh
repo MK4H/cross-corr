@@ -87,18 +87,30 @@ public:
     // }
 
     template<bool STRIDED_LOAD>
-    __device__ size_type load_continuous(const cg::thread_block& ctb, const T* src, dsize_t size, dsize_t offset = 0) {
+    __device__ size_type load_continuous(const cg::thread_block& ctb, const cg::thread_block_tile<32>& warp, const T* src, dsize_t size, dsize_t offset = 0) {
         if (STRIDED_LOAD) {
             load_continuous_chunk_strided_warps(ctb, src, size, offset);
         } else {
-            load_continuous_chunk_continuous_warps(ctb, src, size, offset);
+            load_continuous_chunk_continuous_warps(warp, src, size, offset);
         }
     }
 
-    __device__ size_type load_continuous_chunk_continuous_warps(const cg::thread_block& ctb, const T* src, dsize_t size, dsize_t offset = 0) {
-        constexpr dsize_t warp_size = 32;
-        auto warp = cg::tiled_partition<warp_size>(ctb);
-
+    /**
+     * Expects all warps to call this function, as each warp loads different part of the buffer
+     * Each warp can call it at different times, but all warps have to call it before the buffer is loaded
+     *
+     * @param warp
+     * @param src
+     * @param size
+     * @param offset
+     * @return
+     */
+    __device__ size_type load_continuous_chunk_continuous_warps(
+        const cg::thread_block_tile<32>& warp,
+        const T* src,
+        dsize_t size,
+        dsize_t offset = 0
+    ) {
         size_type copy_size = min(size, size_ - offset);
         auto data = data_ + offset;
 
@@ -124,6 +136,7 @@ public:
     template<bool STRIDED_LOAD>
     __device__ size_type load_strided_chunks(
         const cg::thread_block& ctb,
+        const cg::thread_block_tile<32>& warp,
         const T* src,
         dsize_t chunk_size,
         dsize_t num_chunks,
@@ -133,21 +146,30 @@ public:
         if (STRIDED_LOAD) {
             return load_strided_chunks_strided_warps(ctb, src, chunk_size, num_chunks, chunk_stride, offset_items);
         } else {
-            return load_strided_chunks_continuous_warps(ctb, src, chunk_size, num_chunks, chunk_stride, offset_items);
+            return load_strided_chunks_continuous_warps(warp, src, chunk_size, num_chunks, chunk_stride, offset_items);
         }
     }
 
+
+    /**
+     * Expects all warps to call this function, as each warp loads different part of the buffer
+     * Each warp can call it at different times, but all warps have to call it before the buffer is loaded
+     * @param ctb
+     * @param src
+     * @param chunk_size
+     * @param num_chunks
+     * @param chunk_stride
+     * @param offset_items
+     * @return
+     */
     __device__ size_type load_strided_chunks_continuous_warps(
-        const cg::thread_block& ctb,
+        const cg::thread_block_tile<32>& warp,
         const T* src,
         dsize_t chunk_size,
         dsize_t num_chunks,
         dsize_t chunk_stride,
         dsize_t offset_items = 0
     ) {
-        constexpr dsize_t warp_size = 32;
-        auto warp = cg::tiled_partition<warp_size>(ctb);
-
         size_type copy_size = min(chunk_size * num_chunks, size_ - offset_items);
         auto data = data_ + offset_items;
 

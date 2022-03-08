@@ -638,6 +638,7 @@ __device__ void shared_mem_rows_impl(
         // Preload first values into the bottom buffer
         left_bottom_s.template load_strided_chunks<STRIDED_LOAD>(
             ctb,
+            warp,
             args.left + left_preload_start.linear_idx(args.matrix_size.x),
             row_size,
             last_load_size - preload_offset_rows,
@@ -663,6 +664,7 @@ __device__ void shared_mem_rows_impl(
 
             left_top_s.template load_strided_chunks<STRIDED_LOAD>(
                 ctb,
+                warp,
                 args.left + left_load_start.linear_idx(args.matrix_size.x),
                 row_size,
                 left_load_size,
@@ -678,6 +680,7 @@ __device__ void shared_mem_rows_impl(
             for (dsize_t i = 0; i < NUM_RIGHT; ++i) {
                 right_s[i].template load_strided_chunks<STRIDED_LOAD>(
                     ctb,
+                    warp,
                     args.right + right_load_start.linear_idx(args.matrix_size.x) + i * args.matrix_size.area(),
                     row_size,
                     right_load_size,

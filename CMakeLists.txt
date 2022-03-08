@@ -26,9 +26,7 @@ set_source_files_properties(${CPP_SOURCES} PROPERTIES LANGUAGE CUDA)
 
 set(CUDA_SOURCES
         ${CMAKE_SOURCE_DIR}/src/hadamard.cu
-        ${CMAKE_SOURCE_DIR}/src/naive_def_per_block.cu
         ${CMAKE_SOURCE_DIR}/src/naive_original.cu
-        ${CMAKE_SOURCE_DIR}/src/naive_row_ring_buffer.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle.cu
         ${CMAKE_SOURCE_DIR}/src/naive_warp_per_shift.cu
         ${CMAKE_SOURCE_DIR}/src/scatter.cu
