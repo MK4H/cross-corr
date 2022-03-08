@@ -1,5 +1,18 @@
 cmake_minimum_required(VERSION 3.18)
-project(CROSS LANGUAGES C CXX CUDA)
+
+# Handle superbuild first
+option (USE_SUPERBUILD "Whether or not a superbuild should be invoked" OFF)
+if (USE_SUPERBUILD)
+    project (SUPERBUILD NONE)
+    # execute the superbuild (this script will be invoked again without the
+    # USE_SUPERBUILD option this time)
+    include (cmake/superbuild.cmake)
+    return()                      # stop processing this file further
+else()
+    project(CROSS LANGUAGES C CXX CUDA)
+endif()
+
+
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
