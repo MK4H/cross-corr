@@ -8,11 +8,9 @@
             "path": "full.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_orig_64.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_shuffle_64.ncu-rep"
         },
         {
@@ -31,15 +29,12 @@
             "path": "nai_warp_shuffle_256.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_warp_shuffle_512.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_shift_per_warp_64.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_shift_per_warp_128.ncu-rep"
         },
         {
@@ -49,7 +44,6 @@
             "path": "nai_shift_per_warp_512.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_shift_per_warp_simple_indexing_64.ncu-rep"
         },
         {
@@ -64,6 +58,10 @@
         {
             "is_open": true,
             "path": "nai_shift_per_warp_work_distribution_64.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_warp_shuffle_work_distribution_one_to_many.ncu-rep"
         }
     ],
     "launcher": {
