@@ -98,7 +98,7 @@ class Executable:
         args_path: Path,
         left_input_path: Path,
         right_input_path: Path,
-        output_data_path: Path,
+        output_data_path: Optional[Path],
         timings_path: Path,
         output_stats_path: Path,
         append: bool,
@@ -109,7 +109,6 @@ class Executable:
         # as boost program options does not handle optional values
         # with options well, so we have to end it in --no_progress
         default_options = [
-            "--out", str(output_data_path.absolute()),
             "--times", str(timings_path.absolute()),
             "--no_progress",
             "--args_path", str(args_path.absolute()),
@@ -123,6 +122,9 @@ class Executable:
         ]
 
         optional_options = []
+        if output_data_path is not None:
+            optional_options.append("--out")
+            optional_options.append(str(output_data_path.absolute()))
 
         if validation_data_path is not None:
             optional_options.append("--validate")

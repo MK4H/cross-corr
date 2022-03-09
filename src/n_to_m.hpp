@@ -144,6 +144,12 @@ protected:
         cuda_memcpy_from_device(results_, d_results_);
     }
 
+    void free_impl() override {
+        CUCH(cudaFree(d_results_));
+        CUCH(cudaFree(d_targets_));
+        CUCH(cudaFree(d_refs_));
+    }
+
     std::vector<std::string> measurement_labels_impl() const override {
         return labels;
     }
@@ -278,6 +284,14 @@ protected:
 
     void finalize_impl() override {
         cuda_memcpy_from_device(results_, d_results_);
+    }
+
+    void free_impl() override {
+        FFTCH(cufftDestroy(fft_inv_plan_));
+        FFTCH(cufftDestroy(fft_plan_));
+        CUCH(cudaFree(d_inputs_fft_));
+        CUCH(cudaFree(d_results_));
+        CUCH(cudaFree(d_inputs_));
     }
 
     std::vector<std::string> measurement_labels_impl() const override {

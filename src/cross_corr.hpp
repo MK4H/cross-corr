@@ -59,8 +59,12 @@ public:
         :is_fft_(is_fft), sw_(num_measurements + labels.size())
     {}
 
+    void start() {
+        sw_.reset();
+        start_ = sw_.now();
+    }
+
     void load(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) {
-        this->start_timer();
         CPU_MEASURE(1,
             load_impl(ref_path, target_path);
         );
@@ -88,6 +92,15 @@ public:
         CPU_MEASURE(5,
             finalize_impl();
         );
+    }
+
+    void free() {
+        CPU_MEASURE(6,
+            free_impl();
+        );
+    }
+
+    void stop() {
         sw_.cpu_measure(0, start_);
         sw_.cuda_collect();
     }
@@ -167,11 +180,11 @@ protected:
     virtual void finalize_impl() {
 
     }
-    virtual data_array<T> get_valid_results() const = 0;
+    virtual void free_impl() {
 
-    void start_timer() {
-        start_ = sw_.now();
     }
+
+    virtual data_array<T> get_valid_results() const = 0;
 
     sw_clock::time_point start_;
 
@@ -194,7 +207,8 @@ std::vector<std::string> cross_corr_alg<T, ALLOC>::labels{
     "Prepare",
     "Transfer",
     "Run",
-    "Finalize"
+    "Finalize",
+    "Free"
 };
 
 }

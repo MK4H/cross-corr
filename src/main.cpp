@@ -111,7 +111,7 @@ int run_measurement(
     const std::optional<std::filesystem::path>& args_path,
     const std::filesystem::path& ref_path,
     const std::filesystem::path& target_path,
-    const std::filesystem::path& out_path,
+    const std::optional<std::filesystem::path>& out_path,
     const std::filesystem::path& measurements_path,
     const po::variable_value& validate,
     bool normalize,
@@ -128,6 +128,14 @@ int run_measurement(
     }
 
     ALG alg{args};
+
+    try {
+        logger.log("Start measurement");
+        alg.start();
+    } catch (std::exception& e) {
+        std::cerr << "Exception occured durign measurement start step: " << e.what() << std::endl;
+        return 3;
+    }
 
     try {
         logger.log("Loading inputs");
@@ -169,16 +177,20 @@ int run_measurement(
         return 3;
     }
 
+    try {
+        logger.log("Free resources");
+        alg.free();
+    } catch (std::exception& e) {
+        std::cerr << "Exception occured durign free step: " << e.what() << std::endl;
+        return 3;
+    }
 
-    auto res = alg.results();
-    std::ofstream out_file(out_path);
-    if (alg.is_fft() && normalize) {
-        logger.log("Normalizing and storing results");
-        auto norm = normalize_fft_results(res);
-        norm.store_to_csv(out_file);
-    } else {
-        logger.log("Storing results");
-        res.store_to_csv(out_file);
+    try {
+        logger.log("Stop measurement");
+        alg.stop();
+    } catch (std::exception& e) {
+        std::cerr << "Exception occured durign measurement stop step: " << e.what() << std::endl;
+        return 3;
     }
 
     output_measurements(
@@ -189,6 +201,18 @@ int run_measurement(
         append_measurements
     );
 
+    if (out_path.has_value()) {
+        auto res = alg.results();
+        std::ofstream out_file(out_path.value());
+        if (alg.is_fft() && normalize) {
+            logger.log("Normalizing and storing results");
+            auto norm = normalize_fft_results(res);
+            norm.store_to_csv(out_file);
+        } else {
+            logger.log("Storing results");
+            res.store_to_csv(out_file);
+        }
+    }
 
     if (validate.empty()) {
         logger.log("No validation");
@@ -241,7 +265,7 @@ std::unordered_map<std::string, std::function<int(
     const std::optional<std::filesystem::path>& args_path,
     const std::filesystem::path& ref_path,
     const std::filesystem::path& target_path,
-    const std::filesystem::path& out_path,
+    const std::optional<std::filesystem::path>& out_path,
     const std::filesystem::path& measurements_path,
     const po::variable_value& validate,
     bool normalize,
@@ -252,7 +276,7 @@ std::unordered_map<std::string, std::function<int(
         const std::optional<std::filesystem::path>& args_path,
         const std::filesystem::path& ref_path,
         const std::filesystem::path& target_path,
-        const std::filesystem::path& out_path,
+        const std::optional<std::filesystem::path>& out_path,
         const std::filesystem::path& measurements_path,
         const po::variable_value& validate,
         bool normalize,
@@ -292,7 +316,7 @@ int run(
     const std::optional<std::filesystem::path>& args_path,
     const std::filesystem::path& ref_path,
     const std::filesystem::path& target_path,
-    const std::filesystem::path& out_path,
+    const std::optional<std::filesystem::path>& out_path,
     const std::filesystem::path& measurements_path,
     const po::variable_value& validate,
     bool normalize,
@@ -356,7 +380,7 @@ int main(int argc, char **argv) {
         po::options_description run_opts{"Run options"};
         run_opts.add_options()
             ("data_type,d", po::value<std::string>()->default_value("single"), "Data type to use for computation")
-            ("out,o", po::value<std::filesystem::path>()->default_value("output.csv"), "Path of the output file to be created")
+            ("out,o", po::value<std::filesystem::path>()->default_value(std::filesystem::path{}), "Path of the output file to be created")
             ("times,t", po::value<std::filesystem::path>()->default_value("measurements.csv"), "File to store the measured times in")
             ("validate,v", po::value<std::filesystem::path>()->implicit_value(""), "If validation of the results should be done and optionally path to a file containing the valid results")
             ("normalize,n", po::bool_switch()->default_value(false), "If algorithm is fft, normalize the results")
@@ -448,8 +472,10 @@ int main(int argc, char **argv) {
             auto args_path = vm.count("args_path") ? std::optional<std::filesystem::path>{vm["args_path"].as<std::filesystem::path>()} : std::nullopt;
             auto ref_path = vm["ref_path"].as<std::filesystem::path>();
             auto target_path = vm["target_path"].as<std::filesystem::path>();
-            auto out_path = vm["out"].as<std::filesystem::path>();
             auto measurements_path = vm["times"].as<std::filesystem::path>();
+
+            auto out_path_arg = vm["out"].as<std::filesystem::path>();
+            auto out_path = !out_path_arg.empty() ? std::optional<std::filesystem::path>(out_path_arg) : std::nullopt;
 
             auto normalize = vm["normalize"].as<bool>();
             auto append = vm["append"].as<bool>();

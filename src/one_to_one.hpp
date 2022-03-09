@@ -150,6 +150,12 @@ protected:
         cuda_memcpy_from_device(result_, d_result_);
     }
 
+    void free_impl() override {
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_target_));
+        CUCH(cudaFree(d_ref_));
+    }
+
     std::vector<std::string> measurement_labels_impl() const override {
         return labels;
     }
@@ -241,6 +247,12 @@ protected:
 
     void finalize_impl() override {
         cuda_memcpy_from_device(result_, d_result_);
+    }
+
+    void free_impl() override {
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_target_));
+        CUCH(cudaFree(d_ref_));
     }
 
     std::vector<std::string> measurement_labels_impl() const override {
@@ -336,6 +348,12 @@ protected:
 
     void finalize_impl() override {
         cuda_memcpy_from_device(result_, d_result_);
+    }
+
+    void free_impl() override {
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_target_));
+        CUCH(cudaFree(d_ref_));
     }
 
     std::vector<std::string> measurement_labels_impl() const override {
@@ -453,6 +471,12 @@ protected:
         cuda_memcpy_from_device(result_, d_result_);
     }
 
+    void free_impl() override {
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_target_));
+        CUCH(cudaFree(d_ref_));
+    }
+
     std::vector<std::string> measurement_labels_impl() const override {
         return labels;
     }
@@ -546,6 +570,12 @@ protected:
 
     void finalize_impl() override {
         cuda_memcpy_from_device(result_, d_result_);
+    }
+
+    void free_impl() override {
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_target_));
+        CUCH(cudaFree(d_ref_));
     }
 
     std::vector<std::string> measurement_labels_impl() const override {
@@ -659,6 +689,12 @@ protected:
 
     void finalize_impl() override {
         cuda_memcpy_from_device(result_, d_result_);
+    }
+
+    void free_impl() override {
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_target_));
+        CUCH(cudaFree(d_ref_));
     }
 
     std::vector<std::string> measurement_labels_impl() const override {
@@ -878,6 +914,12 @@ protected:
         cuda_memcpy_from_device(result_, d_result_);
     }
 
+    void free_impl() override {
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_target_));
+        CUCH(cudaFree(d_ref_));
+    }
+
     std::vector<std::string> measurement_labels_impl() const override {
         return labels;
     }
@@ -1000,6 +1042,14 @@ protected:
 
     void finalize_impl() override {
         cuda_memcpy_from_device(result_, d_result_);
+    }
+
+    void free_impl() override {
+        FFTCH(cufftDestroy(fft_inv_plan_));
+        FFTCH(cufftDestroy(fft_plan_));
+        CUCH(cudaFree(d_inputs_fft_));
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_inputs_));
     }
 
     std::vector<std::string> measurement_labels_impl() const override {
@@ -1161,6 +1211,15 @@ protected:
 
     void finalize_impl() override {
         cuda_memcpy_from_device(result_, d_result_);
+    }
+
+    void free_impl() override {
+        FFTCH(cufftDestroy(fft_inv_plan_));
+        FFTCH(cufftDestroy(fft_plan_));
+        CUCH(cudaFree(d_padded_inputs_fft_));
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_padded_inputs_));
+        CUCH(cudaFree(d_inputs_));
     }
 
     std::vector<std::string> measurement_labels_impl() const override {

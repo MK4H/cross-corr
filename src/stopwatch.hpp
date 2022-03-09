@@ -104,6 +104,9 @@ public:
         return is_used_;
     }
 
+    void reset() {
+        is_used_ = false;
+    }
 private:
     cudaEvent_t start_;
     cudaEvent_t stop_;
@@ -164,6 +167,13 @@ public:
 
     void store_measurement(std::size_t label, typename CLOCK::duration measurement) {
         measurements_[label] = measurement;
+    }
+
+    void reset() {
+        std::fill(measurements_.begin(), measurements_.end(), CLOCK::duration::zero());
+        for (auto&& event: events_) {
+            event.reset();
+        }
     }
 
     /**

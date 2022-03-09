@@ -176,9 +176,12 @@ class InternalRun(Run):
             validation_data_path: Optional[Path],
             verbose: bool
     ):
+        if keep_output:
+            out_data_dir.mkdir(exist_ok=True,
+                               parents=True)
         for iteration in range(iterations):
             print(f"Iteration {iteration + 1}/{iterations}", end="\r")
-            out_data_path = out_data_dir / (f"{iteration}.csv" if keep_output else "out.csv")
+            out_data_path = (out_data_dir / f"{iteration}.csv") if keep_output else None
             self.exe.run_benchmark(
                 self.algorithm,
                 data_type,
@@ -250,6 +253,9 @@ class ExternalRun(Run):
             validation_data_path: Optional[Path],
             verbose: bool
             ):
+        out_data_dir.mkdir(exist_ok=True,
+                           parents=True)
+
         self.script.run_benchmark(
             self.algorithm_type,
             data_type,
@@ -265,6 +271,9 @@ class ExternalRun(Run):
             output_paths = [file for file in out_data_dir.glob("*") if file.is_file()]
             validation_csv = self.exe.validate_data(validation_data_path, output_paths, csv=True, normalize=False)
             result_stats_path.write_text(validation_csv)
+
+        if not keep_output:
+            shutil.rmtree(out_data_dir)
 
 
 class GlobalConfig:
@@ -456,7 +465,6 @@ class InputSizeSubgroup:
 
             try:
                 if not skip:
-                    out_data_dir.mkdir(exist_ok=self.group_execution.existing_results == ExistingResultsPolicy.CONTINUE, parents=True)
                     run.run(
                         self.left_path,
                         self.right_path,
