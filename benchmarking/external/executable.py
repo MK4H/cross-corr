@@ -61,7 +61,7 @@ class Executable:
                 res.stderr
             )
 
-    def validate_data(self, valid_data: Path, data_paths: List[Path], csv: bool = False, normalize: bool = False) -> str:
+    def validate_data(self, valid_data: Path, data_paths: List[Path], csv: bool = False, normalize: bool = False, print_header: bool = True) -> str:
         command = [
             str(self.executable_path.absolute()),
             "validate",
@@ -71,6 +71,9 @@ class Executable:
 
         if normalize:
             command.append("--normalize")
+
+        if print_header:
+            command.append("--print_header")
 
         command.append(str(valid_data.absolute()))
         command.extend((str(path.absolute()) for path in data_paths))
@@ -95,6 +98,9 @@ class Executable:
         self,
         alg: str,
         data_type: str,
+        benchmark_type: str,
+        iterations: int,
+        min_measure_seconds: float,
         args_path: Path,
         left_input_path: Path,
         right_input_path: Path,
@@ -113,6 +119,9 @@ class Executable:
             "--no_progress",
             "--args_path", str(args_path.absolute()),
             "--data_type", str(data_type),
+            "--benchmark_type", str(benchmark_type),
+            "--outer_loops", str(iterations),
+            "--min_time", str(min_measure_seconds),
         ]
 
         positional_args = [

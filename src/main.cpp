@@ -55,7 +55,8 @@ void validate(
     const std::filesystem::path& valid_path,
     const std::vector<std::filesystem::path>& target_paths,
     bool normalize,
-    bool csv
+    bool csv,
+    bool print_header
 ){
     simple_logger logger{!csv, true};
 
@@ -70,7 +71,7 @@ void validate(
         if (normalize) {
             target = normalize_fft_results(target);
         }
-        logger.result_stats(validate_result(target, valid), i == 0);
+        logger.result_stats(validate_result(target, valid), i == 0 && print_header);
     }
 }
 
@@ -189,6 +190,7 @@ template<typename ALG>
 void run_validate(
     ALG& alg,
     simple_logger& logger,
+    bool print_header,
     const po::variable_value& validate
 ) {
     if (validate.empty()) {
@@ -196,10 +198,10 @@ void run_validate(
     } else if (validate.as<std::filesystem::path>() != std::filesystem::path{}) {
         auto precomputed_data_path = validate.as<std::filesystem::path>();
         logger.log("Validating results against "s + precomputed_data_path.u8string());
-        logger.result_stats(alg.validate(precomputed_data_path));
+        logger.result_stats(alg.validate(precomputed_data_path), print_header);
     } else {
         logger.log("Computing valid results and validating");
-        logger.result_stats(alg.validate());
+        logger.result_stats(alg.validate(), print_header);
     }
 }
 
@@ -209,7 +211,7 @@ int run_measurement(
 ) {
     simple_logger logger{run_args.print_progress && ALG::benchmarking_type != BenchmarkType::Compute, run_args.append_measurements};
 
-    std::vector<std::string> compute_labels{"computation"};
+    std::vector<std::string> compute_labels{"Computation"};
     stopwatch<std::chrono::high_resolution_clock> sw{compute_labels.size(), run_args.min_time};
 
     json alg_args;
@@ -270,13 +272,14 @@ int run_measurement(
         run_store_output(
             alg,
             logger,
-            run_args.get_loop_out_path(loop),
+            run_args.outer_loops > 1 ? run_args.get_loop_out_path(loop) : run_args.out_path,
             run_args.normalize
         );
 
         run_validate(
             alg,
             logger,
+            !run_args.append_measurements && loop == 0,
             run_args.validate
         );
 
@@ -431,7 +434,8 @@ int main(int argc, char **argv) {
         val_opts.add_options()
             ("normalize,n", po::bool_switch()->default_value(false), "Normalize the data to be validated as they are denormalized fft output")
             ("csv,c", po::bool_switch()->default_value(false), "CSV output")
-        ;
+            ("print_header,p",po::bool_switch()->default_value(false), "Print header")
+            ;
 
         po::options_description val_pos_opts;
         val_pos_opts.add_options()
@@ -566,10 +570,11 @@ int main(int argc, char **argv) {
 
             auto normalize = vm["normalize"].as<bool>();
             auto csv = vm["csv"].as<bool>();
+            auto print_header = vm["print_header"].as<bool>();
             auto template_data = vm["template_data_path"].as<std::filesystem::path>();
             auto validate_data = vm["validate_data_path"].as<std::vector<std::filesystem::path>>();
 
-            validate<double>(template_data, validate_data, normalize, csv);
+            validate<double>(template_data, validate_data, normalize, csv, print_header);
         } else if (cmd == "list") {
             auto algs = get_sorted_keys(get_algorithms<float, BenchmarkType::Unknown>());
             for (auto&& alg: algs) {

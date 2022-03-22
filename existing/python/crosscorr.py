@@ -9,12 +9,10 @@ from pathlib import Path
 
 from matrix import MatrixArray
 
-DEFAULT_OUTPUT_PATH = Path.cwd() / "output.csv"
-
 
 class Timings:
     def __init__(self):
-        self.labels = ["Total", "Load", "Prepare", "Transfer", "Run", "Finalize"]
+        self.labels = ["Load", "Computation"]
         self.values = [0] * len(self.labels)
         self.starts = [0] * len(self.labels)
 
@@ -32,6 +30,10 @@ class Timings:
         append = path.exists()
         with path.open("a" if append else "w") as f:
             np.savetxt(f, [self.values], delimiter=",", fmt="%u", header="" if append else ",".join(self.labels), comments="")
+
+    def reset(self):
+        self.values = [0] * len(self.labels)
+        self.starts = [0] * len(self.labels)
 
 
 def result_matrix_size(left_size: Tuple[int, int], right_size: Tuple[int, int]) -> Tuple[int, int]:
@@ -127,9 +129,10 @@ def n_to_m(
 def run_cross_corr(
         alg: str,
         data_type: Any,
+        iterations: int,
         left_input: Path,
         right_input: Path,
-        output: Path,
+        output: Optional[Path],
         timings_path: Optional[Path]
 ):
     algs = {
@@ -143,24 +146,26 @@ def run_cross_corr(
         alg_names = ", ".join(algs.keys())
         raise ValueError(f"Invalid algorithm {alg}, expected one of {alg_names}")
     timings = Timings()
-    timings.start(0)
 
-    timings.start(1)
+    timings.start(0)
     left = MatrixArray.load_from_csv(left_input, data_type)
     right = MatrixArray.load_from_csv(right_input, data_type)
-    timings.measure(1)
-
-    timings.start(4)
-    result = algs[alg](left, right)
-    timings.measure(4)
-
     timings.measure(0)
 
-    with output.open("w") as f:
-        result.save_to_csv(f)
+    for iteration in range(iterations):
+        timings.start(1)
+        result = algs[alg](left, right)
+        timings.measure(1)
 
-    if timings_path is not None:
-        timings.save_csv(timings_path)
+        if output is not None:
+            output = output.with_name(output.stem + f"_{iteration}" + output.suffix) if iterations > 1 else output
+            with output.open("w") as f:
+                result.save_to_csv(f)
+
+        if timings_path is not None:
+            timings.save_csv(timings_path)
+
+        timings.reset()
 
 
 def _run_cross_corr(args: argparse.Namespace):
@@ -172,6 +177,7 @@ def _run_cross_corr(args: argparse.Namespace):
     run_cross_corr(
         args.algorithm,
         data_type,
+        args.iterations,
         args.left_input_path,
         args.right_input_path,
         args.output_path,
@@ -181,14 +187,17 @@ def _run_cross_corr(args: argparse.Namespace):
 
 def arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-o", "--output_path",
-                        default=DEFAULT_OUTPUT_PATH,
                         type=Path,
-                        help=f"Output directory path (defaults to {str(DEFAULT_OUTPUT_PATH)})")
+                        help=f"Output directory path")
     parser.add_argument("-d", "--data_type",
                         default="single",
                         choices=["single", "double"],
                         help="Datatype to be used for computation"
                         )
+    parser.add_argument("-i", "--iterations",
+                        type=int,
+                        default=1,
+                        help="Number of iterations to compute with loaded data")
     parser.add_argument("-t", "--timings_path",
                         type=Path,
                         help=f"Path to store time measurements")

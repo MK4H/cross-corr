@@ -52,7 +52,9 @@ class Run(ABC):
             left_input: Path,
             right_input: Path,
             data_type: str,
-            iterations: int,
+            outer_iterations: int,
+            inner_iterations: int,
+            min_measure_seconds: float,
             result_times_path: Path,
             result_stats_path: Path,
             out_data_dir: Path,
@@ -87,12 +89,14 @@ class InternalRun(Run):
             name: str,
             exe: executable.Executable,
             algorithm: str,
+            benchmark_type: str,
             args: Dict[Any, Any],
             args_file_path: Path,
     ):
         super().__init__(idx, name, InternalRun.get_algorithm_type(algorithm))
         self.exe = exe
         self.algorithm = algorithm
+        self.benchmark_type = benchmark_type
         self.args = args
         self.args_file_path = args_file_path
 
@@ -109,6 +113,7 @@ class InternalRun(Run):
     def from_dict(cls, idx: int, exe: executable.Executable, base_dir_path: Path, input_data_dir: Path, data) -> List["Run"]:
         algorithm = data["algorithm"]
         base_name = data["name"] if "name" in data else f"{idx}_{algorithm}"
+        benchmark_type = data["benchmark_type"] if "benchmark_type" in data else "Compute"
         args = data["args"] if "args" in data else {}
 
         generate = {}
@@ -127,6 +132,7 @@ class InternalRun(Run):
                 f"{base_name}____",
                 exe,
                 algorithm,
+                benchmark_type,
                 singles,
                 input_data_dir / f"{idx}-{base_name}-args.json"
             )]
@@ -144,6 +150,7 @@ class InternalRun(Run):
                 name,
                 exe,
                 algorithm,
+                benchmark_type,
                 run_args,
                 input_data_dir / f"{idx}-{name}-args.json",
             ))
@@ -168,7 +175,9 @@ class InternalRun(Run):
             left_input: Path,
             right_input: Path,
             data_type: str,
-            iterations: int,
+            outer_iterations: int,
+            inner_iterations: int,
+            min_measure_seconds: float,
             result_times_path: Path,
             result_stats_path: Path,
             out_data_dir: Path,
@@ -179,12 +188,15 @@ class InternalRun(Run):
         if keep_output:
             out_data_dir.mkdir(exist_ok=True,
                                parents=True)
-        for iteration in range(iterations):
-            print(f"Iteration {iteration + 1}/{iterations}", end="\r")
+        for iteration in range(outer_iterations):
+            print(f"Iteration {iteration + 1}/{outer_iterations}", end="\r")
             out_data_path = (out_data_dir / f"{iteration}.csv") if keep_output else None
             self.exe.run_benchmark(
                 self.algorithm,
                 data_type,
+                self.benchmark_type,
+                inner_iterations,
+                min_measure_seconds,
                 self.args_file_path,
                 left_input,
                 right_input,
@@ -245,7 +257,9 @@ class ExternalRun(Run):
             left_input: Path,
             right_input: Path,
             data_type: str,
-            iterations: int,
+            outer_iterations: int,
+            inner_iterations: int,
+            min_measure_seconds: float,
             result_times_path: Path,
             result_stats_path: Path,
             out_data_dir: Path,
@@ -253,26 +267,42 @@ class ExternalRun(Run):
             validation_data_path: Optional[Path],
             verbose: bool
             ):
-        out_data_dir.mkdir(exist_ok=True,
-                           parents=True)
 
-        self.script.run_benchmark(
-            self.algorithm_type,
-            data_type,
-            iterations,
-            left_input,
-            right_input,
-            out_data_dir,
-            result_times_path,
-            verbose
-        )
+        write_output = keep_output or validation_data_path is not None
 
-        if validation_data_path is not None:
-            output_paths = [file for file in out_data_dir.glob("*") if file.is_file()]
-            validation_csv = self.exe.validate_data(validation_data_path, output_paths, csv=True, normalize=False)
-            result_stats_path.write_text(validation_csv)
+        if write_output:
+            out_data_dir.mkdir(exist_ok=True,
+                               parents=True)
 
-        if not keep_output:
+        for iteration in range(outer_iterations):
+            print(f"Iteration {iteration + 1}/{outer_iterations}", end="\r")
+            out_data_path = (out_data_dir / f"{iteration}.csv") if keep_output else (out_data_dir / "out.csv")
+            out_data_path = out_data_path if write_output else None
+            self.script.run_benchmark(
+                self.algorithm_type,
+                data_type,
+                inner_iterations,
+                left_input,
+                right_input,
+                out_data_path,
+                result_times_path,
+                verbose
+            )
+
+            if validation_data_path is not None:
+                glob = f"{out_data_path.stem}*{out_data_path.suffix}"
+                output_paths = [file for file in out_data_dir.glob(glob) if file.is_file()]
+                validation_csv = self.exe.validate_data(
+                    validation_data_path,
+                    output_paths,
+                    csv=True,
+                    normalize=False,
+                    print_header=iteration == 0
+                )
+                with result_stats_path.open("a") as f:
+                    f.write(validation_csv)
+
+        if write_output and not keep_output:
             shutil.rmtree(out_data_dir)
 
 
@@ -282,10 +312,12 @@ class GlobalConfig:
             base_dir_path: Path,
             output_path: Path,
             sizes: Optional[input_size.InputSize],
-            data_type: Optional[str],
-            iterations: Optional[int],
-            validate: Optional[bool],
-            keep_output: Optional[bool],
+            data_type: str,
+            outer_iterations: int,
+            inner_iterations: int,
+            min_measure_seconds: float,
+            validate: bool,
+            keep_output: bool,
     ):
         """
 
@@ -293,7 +325,9 @@ class GlobalConfig:
         :param output_path: Path to a writable directory to be created and used for benchmarks
         :param sizes: The default set of input sizes to be used
         :param data_type: Default data type to be used
-        :param iterations: Default number of iterations of each benchmark
+        :param outer_iterations: Default number of outer iterations of each benchmark, where the program is started again for each iteration
+        :param inner_iterations: Default number of inner iterations which are implemented by the program itself
+        :param min_measure_seconds: Minimum number of seconds to measure before the result is taken as statistically relevant
         :param validate: Default flag if the outputs should be validated
         :param keep_output: Default flag if outputs of each iterations should be kept
         """
@@ -301,7 +335,9 @@ class GlobalConfig:
         self.output_path = output_path
         self.sizes = sizes
         self.data_type = data_type
-        self.iterations = iterations
+        self.outer_iterations = outer_iterations
+        self.inner_iterations = inner_iterations
+        self.min_measure_seconds = min_measure_seconds
         self.validate = validate
         self.keep_output = keep_output
 
@@ -311,18 +347,20 @@ class GlobalConfig:
 
     @classmethod
     def from_dict(cls, data, base_dir_path: Path, output_path: Path) -> "GlobalConfig":
-        if data is None:
-            return cls(base_dir_path, output_path, None, None, None, None, None)
+
+        data = data if data is not None else {}
 
         return cls(
             base_dir_path,
             output_path,
             [input_size.InputSize.from_dict_or_string(in_size) for in_size in
              data["sizes"]] if "sizes" in data else None,
-            data["data_type"] if "data_type" in data else None,
-            int(data["iterations"]) if "iterations" in data else None,
-            bool(data["validate"]) if "validate" in data else None,
-            bool(data["keep_output"]) if "keep_output" in data else None
+            data["data_type"] if "data_type" in data else "single",
+            int(data["outer_iterations"]) if "outer_iterations" in data else 1,
+            int(data["inner_iterations"]) if "inner_iterations" in data else 1,
+            float(data["min_measure_seconds"]) if "min_measure_seconds" in data else 1.0,
+            bool(data["validate"]) if "validate" in data else False,
+            bool(data["keep_output"]) if "keep_output" in data else False
         )
 
 
@@ -469,7 +507,9 @@ class InputSizeSubgroup:
                         self.left_path,
                         self.right_path,
                         self.group.data_type,
-                        self.group.iterations,
+                        self.group.outer_iterations,
+                        self.group.inner_iterations,
+                        self.group.min_measure_seconds,
                         self.group_execution.tmp_results_path,
                         self.group_execution.tmp_output_stats_path,
                         out_data_dir,
@@ -526,8 +566,8 @@ class GroupExecution:
         self.tmp_output_stats_path.unlink(missing_ok=True)
 
     def run(self, verbose: bool, valid: Optional[validator.Validator]):
-        num_steps = len(self.group.sizes) * len(self.group.runs) + len(self.group.sizes) + (
-            len(self.group.sizes) if self.group.validate else 0)
+        # + 2* once for generating inputs, once for generating validation data, even if skipped
+        num_steps = len(self.group.sizes) * len(self.group.runs) + 2 * len(self.group.sizes)
         with Logger(num_steps, verbose, self.failure_log_path) as logger:
             for input_idx, in_size in enumerate(self.group.sizes):
                 subgroup = InputSizeSubgroup.generate_inputs(
@@ -553,7 +593,9 @@ class Group:
             result_dir: Path,
             input_data_dir: Path,
             output_data_dir: Path,
-            iterations: int,
+            outer_iterations: int,
+            inner_iterations: int,
+            min_measure_seconds: float,
             validate: bool,
             keep_output: bool
     ):
@@ -565,7 +607,9 @@ class Group:
         self.result_dir = result_dir
         self.input_data_dir = input_data_dir
         self.output_data_dir = output_data_dir
-        self.iterations = iterations
+        self.outer_iterations = outer_iterations
+        self.inner_iterations = inner_iterations
+        self.min_measure_seconds = min_measure_seconds
         self.validate = validate
         self.keep_output = keep_output
 
@@ -573,33 +617,34 @@ class Group:
     def _config_from_dict(
             data,
             global_config: GlobalConfig
-    ) -> Tuple[Optional[List[input_size.InputSize]], Optional[str], Optional[int], Optional[bool], Optional[bool]]:
-        if data is None:
-            return global_config.sizes, global_config.data_type, global_config.iterations, global_config.validate, global_config.keep_output
+    ) -> Tuple[Optional[List[input_size.InputSize]], str, int, int, float, bool, bool]:
+
+        data = data if data is not None else {}
+
         sizes = [input_size.InputSize.from_dict_or_string(in_size) for in_size in data["sizes"]] if "sizes" in data else global_config.sizes
-        data_type = data["data_type"] if "data_type" in data else "single"
-        iterations = int(data["iterations"]) if "iterations" in data else global_config.iterations
+        data_type = data["data_type"] if "data_type" in data else global_config.data_type
+        outer_iterations = int(data["outer_iterations"]) if "outer_iterations" in data else global_config.outer_iterations
+        inner_iterations = int(
+            data["inner_iterations"]) if "inner_iterations" in data else global_config.inner_iterations
+        min_measure_seconds = float(data["min_measure_seconds"]) if "min_measure_seconds" in data else global_config.min_measure_seconds
         validate = bool(data["validate"]) if "validate" in data else global_config.validate
         keep = bool(data["keep_output"]) if "keep_output" in data else global_config.keep_output
 
-        return sizes, data_type, iterations, validate, keep
+        return sizes, data_type, outer_iterations, inner_iterations, min_measure_seconds, validate, keep
 
     @classmethod
     def from_dict(cls, data, global_config: GlobalConfig, index: int, exe: executable.Executable):
         name = str(data['name']) if "name" in data else str(index)
-        sizes, data_type, iterations, validate, keep_output = cls._config_from_dict(
+        sizes, data_type, outer_iterations, inner_iterations, min_measure_seconds, validate, keep_output = cls._config_from_dict(
             data.get("config", None),
             global_config
         )
 
         assert sizes is not None, "Missing list of sizes"
-        assert data_type is not None, "Missing data type"
-        assert iterations is not None, "Missing number of iterations"
-        validate = validate if validate is not None else False
-        keep_output = keep_output if keep_output is not None else False
 
         assert len(sizes) != 0, "No input sizes given"
-        assert iterations > 0, f"Invalid number of iterations \"{iter}\" given"
+        assert outer_iterations > 0, f"Invalid number of outer iterations \"{outer_iterations}\" given"
+        assert inner_iterations > 0, f"Invalid number of inner iterations \"{inner_iterations}\" given"
 
         unique_name = f"{index}_{data['name']}" if "name" in data else str(index)
         group_dir = global_config.output_path / unique_name
@@ -644,7 +689,9 @@ class Group:
             group_dir,
             input_data_dir,
             output_data_dir,
-            iterations,
+            outer_iterations,
+            inner_iterations,
+            min_measure_seconds,
             validate,
             keep_output,
         )
@@ -654,7 +701,8 @@ class Group:
             "name": self.name,
             "config": {
                 "data_type": self.data_type,
-                "iterations": self.iterations,
+                "outer_iterations": self.outer_iterations,
+                "inner_iterations": self.inner_iterations,
                 "sizes": [size.to_dict() for size in self.sizes],
                 "validate": self.validate,
                 "keep_output": self.keep_output,

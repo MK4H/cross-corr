@@ -11,23 +11,18 @@ then
     exit 1
 fi
 
+
 ALG="$1"
 DATA_TYPE="$2"
 ITERATIONS="$3"
 IN1="$(realpath -e "$4")"
 IN2="$(realpath -e "$5")"
 TIMES="$(realpath "$6")"
-
 if [[ $# -eq 7 ]]
 then
     OUT_PATH="$(realpath "$7")"
-    OUT_OPTION="-o \"${OUT_PATH}\""
 else
-    OUT_OPTION=""
+    OUT_PATH=""
 fi
 
-WORK_DIR="${PWD}"
-
-cd "${DIR}"
-
-poetry run bash -c "cd \"${WORK_DIR}\" && python3 \"${DIR}/crosscorr.py\" ${OUT_OPTION} -i \"${ITERATIONS}\" -d \"${DATA_TYPE}\" -t \"${TIMES}\" \"${ALG}\" \"${IN1}\" \"${IN2}\""
+matlab -nodisplay -nosplash -nodesktop -batch "alg = '${ALG}'; data_type = '${DATA_TYPE}'; iterations = ${ITERATIONS}; in1_path = '${IN1}'; in2_path = '${IN2}'; out_path = '${OUT_PATH}'; timings_path = '${TIMES}'; run('${DIR}/cross_corr.m'); exit;"

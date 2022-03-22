@@ -32,7 +32,7 @@ public:
             std::cout << results;
         } else {
             if ((print_header_override.has_value() && *print_header_override) ||
-                !append_result_stats_
+                (!print_header_override.has_value() && !append_result_stats_)
             ) {
                 std::cout << results.csv_header() << "\n";
             }
