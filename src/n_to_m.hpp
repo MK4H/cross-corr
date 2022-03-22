@@ -8,7 +8,6 @@
 
 #include "cross_corr.hpp"
 #include "matrix.hpp"
-#include "helpers.cuh"
 #include "stopwatch.hpp"
 
 #include "kernels.cuh"
@@ -17,28 +16,32 @@ using namespace std::string_literals;
 
 namespace cross {
 
-template<typename T, typename ALLOC = std::allocator<T>>
-class n_to_m: public cross_corr_alg<T, ALLOC> {
+inline bool n_to_m_validate_input_size(dsize_t rows, dsize_t cols, dsize_t left_matrices, dsize_t right_matrices) {
+    return rows > 0 && cols > 0 && left_matrices > 0 && right_matrices > 0;
+}
+
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
+class n_to_m: public cross_corr_alg<T, BENCH_TYPE, ALLOC> {
 public:
-    n_to_m(bool is_fft, std::size_t num_measurements)
-        :cross_corr_alg<T,ALLOC>(is_fft, num_measurements)
+    n_to_m(bool is_fft, std::size_t num_measurements, std::chrono::nanoseconds min_measured_time)
+        :cross_corr_alg<T, BENCH_TYPE, ALLOC>(is_fft, measure_alg() ? num_measurements : 0, min_measured_time)
     {}
 
-    static bool validate_input_size(dsize_t rows, dsize_t cols, dsize_t left_matrices, dsize_t right_matrices) {
-        return rows > 0 && cols > 0 && left_matrices > 0 && right_matrices > 0;
+protected:
+    static constexpr bool measure_alg() {
+        return BENCH_TYPE == BenchmarkType::Algorithm;
     }
 
-protected:
     data_array<T> get_valid_results() const override {
         return cpu_cross_corr_n_to_m(this->refs(), this->targets());
     }
 };
 
-template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
-class cpu_n_to_m: public n_to_m<T, ALLOC> {
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
+class cpu_n_to_m: public n_to_m<T, BENCH_TYPE, ALLOC> {
 public:
-    explicit cpu_n_to_m([[maybe_unused]] const json& args)
-        :n_to_m<T, ALLOC>(false, labels.size()), refs_(), targets_(), results_()
+    explicit cpu_n_to_m([[maybe_unused]] const json& args, std::chrono::nanoseconds min_measured_time)
+        :n_to_m<T, BENCH_TYPE, ALLOC>(false, 0, min_measured_time), refs_(), targets_(), results_()
     {
 
     }
@@ -71,12 +74,7 @@ protected:
         cpu_cross_corr_n_to_m(refs_, targets_, results_);
     }
 
-    std::vector<std::string> measurement_labels_impl() const override {
-        return labels;
-    }
-
 private:
-    static std::vector<std::string> labels;
 
     data_array<T, ALLOC> refs_;
     data_array<T, ALLOC> targets_;
@@ -84,16 +82,12 @@ private:
     data_array<T, ALLOC> results_;
 };
 
-template<typename T, bool DEBUG, typename ALLOC>
-std::vector<std::string> cpu_n_to_m<T, DEBUG, ALLOC>::labels{
-};
 
-
-template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
-class naive_original_alg_n_to_m: public n_to_m<T, ALLOC> {
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
+class naive_original_alg_n_to_m: public n_to_m<T, BENCH_TYPE, ALLOC> {
 public:
-    explicit naive_original_alg_n_to_m([[maybe_unused]] const json& args)
-        :n_to_m<T, ALLOC>(false, labels.size()), refs_(), targets_(), results_()
+    explicit naive_original_alg_n_to_m([[maybe_unused]] const json& args, std::chrono::nanoseconds min_measured_time)
+        :n_to_m<T, BENCH_TYPE, ALLOC>(false, labels.size(), min_measured_time), refs_(), targets_(), results_()
     {
 
     }
@@ -132,12 +126,9 @@ protected:
     }
 
     void run_impl() override {
-        CUDA_MEASURE(this->label_index(0),
+        CPU_MEASURE(0, this->measure_alg(), this->sw_, true,
                      start_kernels()
         );
-
-        CUCH(cudaDeviceSynchronize());
-        CUCH(cudaGetLastError());
     }
 
     void finalize_impl() override {
@@ -151,7 +142,7 @@ protected:
     }
 
     std::vector<std::string> measurement_labels_impl() const override {
-        return labels;
+        return this->measure_alg() ? labels : std::vector<std::string>{};
     }
 
 private:
@@ -169,6 +160,7 @@ private:
 
     void start_kernels() {
         for (dsize_t ref = 0; ref < refs_.num_matrices(); ++ref) {
+            // TODO: Start in multiple streams
             run_cross_corr_naive_original(
                 d_refs_ + ref * refs_.matrix_size().area(),
                 d_targets_,
@@ -182,17 +174,17 @@ private:
     }
 };
 
-template<typename T, bool DEBUG, typename ALLOC>
-std::vector<std::string> naive_original_alg_n_to_m<T, DEBUG, ALLOC>::labels{
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC>
+std::vector<std::string> naive_original_alg_n_to_m<T, BENCH_TYPE, ALLOC>::labels{
     "Kernel"
 };
 
 
-template<typename T, bool DEBUG = false, typename ALLOC = std::allocator<T>>
-class fft_better_hadamard_alg_n_to_m: public n_to_m<T, ALLOC> {
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
+class fft_better_hadamard_alg_n_to_m: public n_to_m<T, BENCH_TYPE, ALLOC> {
 public:
-    explicit fft_better_hadamard_alg_n_to_m([[maybe_unused]] const json& args)
-        :n_to_m<T, ALLOC>(true, labels.size()), refs_(), targets_(), results_(), fft_buffer_size_(0)
+    explicit fft_better_hadamard_alg_n_to_m([[maybe_unused]] const json& args, std::chrono::nanoseconds min_measured_time)
+        :n_to_m<T, BENCH_TYPE, ALLOC>(true, labels.size(), min_measured_time), refs_(), targets_(), results_(), fft_buffer_size_(0)
     {
         hadamard_threads_per_block_ = args.value("hadamard_threads_per_block", 256);
         hadamard_items_per_thread_ = args.value("hadamard_items_per_thread", 10);
@@ -217,6 +209,7 @@ public:
         };
     }
 
+
 protected:
     void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
         refs_ = load_matrix_array_from_csv<T, relative_zero_padding<2>, ALLOC>(ref_path);
@@ -234,7 +227,7 @@ protected:
 
         auto num_inputs = refs_.num_matrices() + targets_.num_matrices();
 
-        CPU_MEASURE(this->label_index(3),
+        CPU_MEASURE(3, this->measure_alg(), this->sw_, false,
             cuda_malloc(&d_inputs_, refs_.size() + targets_.size());
             cuda_malloc(&d_results_, results_.size());
 
@@ -244,7 +237,7 @@ protected:
 
         int input_sizes[2] = {static_cast<int>(refs_.matrix_size().y), static_cast<int>(refs_.matrix_size().x)};
         int result_sizes[2] = {static_cast<int>(results_.matrix_size().y), static_cast<int>(results_.matrix_size().x)};
-        CPU_MEASURE(this->label_index(4),
+        CPU_MEASURE(4, this->measure_alg(), this->sw_, false,
             // With nullptr inembed and onembed, the values for istride, idist, ostride and odist are ignored
             FFTCH(cufftPlanMany(&fft_plan_, 2, input_sizes, nullptr, 1, 0, nullptr, 1, 0, fft_type_R2C<T>(), num_inputs));
 
@@ -258,11 +251,11 @@ protected:
     }
 
     void run_impl() override {
-        CPU_MEASURE(this->label_index(0),
+        CPU_ADAPTIVE_MEASURE(0, this->measure_alg(), this->sw_, false,
             fft_real_to_complex(fft_plan_, d_inputs_, d_inputs_fft_);
         );
 
-        CUDA_MEASURE(this->label_index(1),
+        CUDA_ADAPTIVE_MEASURE(1, this->measure_alg(), this->sw_,
             run_hadamard_n_to_m_over_output(
                 d_inputs_fft_,
                 d_inputs_fft_ + fft_buffer_size_ * refs_.num_matrices(),
@@ -274,12 +267,9 @@ protected:
                 hadamard_items_per_thread_)
         );
 
-        CPU_MEASURE(this->label_index(2),
+        CPU_ADAPTIVE_MEASURE(2, this->measure_alg(), this->sw_, false,
             fft_complex_to_real(fft_inv_plan_, d_haddamard_results_, d_results_)
         );
-
-        CUCH(cudaDeviceSynchronize());
-        CUCH(cudaGetLastError());
     }
 
     void finalize_impl() override {
@@ -295,7 +285,7 @@ protected:
     }
 
     std::vector<std::string> measurement_labels_impl() const override {
-        return labels;
+        return this->measure_alg() ? labels : std::vector<std::string>{};
     }
 
 private:
@@ -323,8 +313,8 @@ private:
     dsize_t hadamard_items_per_thread_;
 };
 
-template<typename T, bool DEBUG, typename ALLOC>
-std::vector<std::string> fft_better_hadamard_alg_n_to_m<T, DEBUG, ALLOC>::labels{
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC>
+std::vector<std::string> fft_better_hadamard_alg_n_to_m<T, BENCH_TYPE, ALLOC>::labels{
     "Forward FFT",
     "Hadamard",
     "Inverse FFT",

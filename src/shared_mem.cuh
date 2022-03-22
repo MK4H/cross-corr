@@ -7,7 +7,6 @@
 #include <cooperative_groups/reduce.h>
 
 #include "types.cuh"
-#include "helpers.cuh"
 
 namespace cg = cooperative_groups;
 

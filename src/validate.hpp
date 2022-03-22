@@ -12,7 +12,6 @@
 #include <boost/accumulators/statistics/variance.hpp>
 #include <cmath>
 
-#include "helpers.cuh"
 #include "matrix.hpp"
 
 namespace accs = boost::accumulators;

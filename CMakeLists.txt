@@ -33,7 +33,9 @@ FIND_PACKAGE(nlohmann_json 3.7.3 REQUIRED)
 set(CPP_SOURCES
         ${CMAKE_SOURCE_DIR}/src/main.cpp
         ${CMAKE_SOURCE_DIR}/src/row_distribution.cpp
-        ${CMAKE_SOURCE_DIR}/src/argument_error.cpp)
+        ${CMAKE_SOURCE_DIR}/src/argument_error.cpp
+        ${CMAKE_SOURCE_DIR}/src/run_args.cpp
+)
 # Route everything through nvcc
 set_source_files_properties(${CPP_SOURCES} PROPERTIES LANGUAGE CUDA)
 

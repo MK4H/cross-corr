@@ -5,6 +5,7 @@
 #include <chrono>
 
 #include "matrix.hpp"
+#include "stopwatch.hpp"
 
 namespace cross {
 
@@ -28,6 +29,20 @@ void to_csv(std::ostream& out, const std::vector<std::chrono::duration<REP, PERI
     for (auto&& dur: durations) {
         out << sep << std::chrono::duration_cast<OUT_DURATION>(dur).count();
         sep = ",";
+    }
+}
+
+template<typename OUT_DURATION, typename IN_DURATION>
+void to_csv(std::ostream& out, const std::vector<measurement_result<IN_DURATION>>& results, bool with_iterations = true) {
+    auto sep = "";
+    for (auto&& result: results) {
+        out << sep;
+        out << std::chrono::duration_cast<OUT_DURATION>(result.get_iteration_time()).count();
+        sep = ",";
+        if (with_iterations) {
+            out << sep;
+            out << result.get_iterations();
+        }
     }
 }
 

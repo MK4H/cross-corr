@@ -14,7 +14,7 @@
 #include <boost/tokenizer.hpp>
 
 #include "types.cuh"
-#include "helpers.cuh"
+#include "host_helpers.hpp"
 
 namespace cross {
 

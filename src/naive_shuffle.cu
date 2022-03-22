@@ -9,7 +9,7 @@
 #include <cassert>
 
 #include "types.cuh"
-#include "helpers.cuh"
+#include "cuda_helpers.cuh"
 
 #include "row_distribution.cuh"
 

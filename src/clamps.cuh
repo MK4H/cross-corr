@@ -3,9 +3,10 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
+#include "types.cuh"
+
 namespace cross
 {
-
 
 template<typename T>
 __device__ T clamp_up(const T& val, const T& low_bound) {

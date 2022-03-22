@@ -3,7 +3,7 @@
 
 #include <cuda_runtime.h>
 
-#include "helpers.cuh"
+#include "cuda_helpers.cuh"
 
 namespace cross {
 

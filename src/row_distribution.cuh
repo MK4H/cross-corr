@@ -2,7 +2,7 @@
 
 #include <cmath>
 #include "types.cuh"
-#include "helpers.cuh"
+#include "cuda_helpers.cuh"
 
 namespace cross {
 

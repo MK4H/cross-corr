@@ -1,13 +1,13 @@
 #include <iostream>
-#include <fstream>
 #include <filesystem>
 #include <functional>
 #include <unordered_map>
-#include <algorithm>
+#include <unordered_set>
 #include <vector>
 
 #include <boost/program_options.hpp>
 
+#include "run_args.hpp"
 #include "simple_logger.hpp"
 #include "validate.hpp"
 #include "matrix.hpp"
@@ -21,6 +21,7 @@
 #include "n_to_m.hpp"
 
 #include "argument_error.hpp"
+#include "host_helpers.hpp"
 
 // Fix filesystem::path not working with program options when argument contains spaces
 // https://stackoverflow.com/questions/68716288/q-boost-program-options-using-stdfilesystempath-as-option-fails-when-the-gi
@@ -73,11 +74,20 @@ void validate(
     }
 }
 
+std::vector<std::string> with_iteration_labels(const std::vector<std::string>& labels) {
+    std::vector<std::string> out{labels.size() * 2};
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        out[2*i] = labels[i];
+        out[2*i + 1] = labels[i] + "_iterations";
+    }
+    return out;
+}
+
 template<typename DURATION>
 void output_measurements(
     const std::filesystem::path& measurements_path,
     const std::vector<std::string>& labels,
-    const std::vector<DURATION>& measurements,
+    const std::vector<measurement_result<DURATION>>& measurements,
     const std::vector<std::pair<std::string, std::string>>& additional_properties,
     bool append
 ) {
@@ -86,7 +96,7 @@ void output_measurements(
         measurements_file.open(measurements_path, std::ios_base::app);
     } else {
         measurements_file.open(measurements_path);
-        to_csv(measurements_file, labels);
+        to_csv(measurements_file, with_iteration_labels(labels));
         if (!additional_properties.empty()) {
             if (!labels.empty()) {
                 measurements_file << ",";
@@ -107,44 +117,10 @@ void output_measurements(
 }
 
 template<typename ALG>
-int run_measurement(
-    const std::optional<std::filesystem::path>& args_path,
-    const std::filesystem::path& ref_path,
-    const std::filesystem::path& target_path,
-    const std::optional<std::filesystem::path>& out_path,
-    const std::filesystem::path& measurements_path,
-    const po::variable_value& validate,
-    bool normalize,
-    bool append_measurements,
-    bool print_progress
+int run_computation_steps(
+    ALG& alg,
+    simple_logger& logger
 ) {
-    simple_logger logger{print_progress, append_measurements};
-    json args;
-    if (args_path) {
-        std::ifstream args_file{*args_path};
-        args_file >> args;
-    } else {
-        args = json::object();
-    }
-
-    ALG alg{args};
-
-    try {
-        logger.log("Start measurement");
-        alg.start();
-    } catch (std::exception& e) {
-        std::cerr << "Exception occured durign measurement start step: " << e.what() << std::endl;
-        return 3;
-    }
-
-    try {
-        logger.log("Loading inputs");
-        alg.load(ref_path, target_path);
-    } catch (std::exception& e) {
-        std::cerr << "Exception occured durign data loading step: " << e.what() << std::endl;
-        return 3;
-    }
-
     try {
         logger.log("Allocating");
         alg.prepare();
@@ -185,24 +161,18 @@ int run_measurement(
         return 3;
     }
 
-    try {
-        logger.log("Stop measurement");
-        alg.stop();
-    } catch (std::exception& e) {
-        std::cerr << "Exception occured durign measurement stop step: " << e.what() << std::endl;
-        return 3;
-    }
+    return 0;
+}
 
-    output_measurements(
-        measurements_path,
-        alg.measurement_labels(),
-        alg.measurements(),
-        alg.additional_properties(),
-        append_measurements
-    );
-
+template<typename ALG>
+void run_store_output(
+    ALG& alg,
+    simple_logger& logger,
+    const std::optional<std::filesystem::path>& out_path,
+    bool normalize
+) {
     if (out_path.has_value()) {
-        auto res = alg.results();
+        const auto& res = alg.results();
         std::ofstream out_file(out_path.value());
         if (alg.is_fft() && normalize) {
             logger.log("Normalizing and storing results");
@@ -213,16 +183,103 @@ int run_measurement(
             res.store_to_csv(out_file);
         }
     }
+}
 
+template<typename ALG>
+void run_validate(
+    ALG& alg,
+    simple_logger& logger,
+    const po::variable_value& validate
+) {
     if (validate.empty()) {
         logger.log("No validation");
     } else if (validate.as<std::filesystem::path>() != std::filesystem::path{}) {
         auto precomputed_data_path = validate.as<std::filesystem::path>();
-        logger.log("Validating results agains "s + precomputed_data_path.u8string());
+        logger.log("Validating results against "s + precomputed_data_path.u8string());
         logger.result_stats(alg.validate(precomputed_data_path));
     } else {
         logger.log("Computing valid results and validating");
         logger.result_stats(alg.validate());
+    }
+}
+
+template<typename ALG>
+int run_measurement(
+    const run_args& run_args
+) {
+    simple_logger logger{run_args.print_progress && ALG::benchmarking_type != BenchmarkType::Compute, run_args.append_measurements};
+
+    std::vector<std::string> compute_labels{"computation"};
+    stopwatch<std::chrono::high_resolution_clock> sw{compute_labels.size(), run_args.min_time};
+
+    json alg_args;
+    if (run_args.alg_args_path) {
+        std::ifstream args_file{*run_args.alg_args_path};
+        args_file >> alg_args;
+    } else {
+        alg_args = json::object();
+    }
+
+    ALG alg{alg_args, run_args.min_time};
+
+    try {
+        logger.log("Loading inputs");
+        alg.load(run_args.ref_path, run_args.target_path);
+    } catch (std::exception& e) {
+        std::cerr << "Exception occured durign data loading step: " << e.what() << std::endl;
+        return 3;
+    }
+
+
+    bool do_compute_measurement = ALG::benchmarking_type == BenchmarkType::Compute;
+    for (std::size_t loop = 0; loop < run_args.outer_loops; ++loop) {
+        CPU_ADAPTIVE_MEASURE(0, do_compute_measurement, sw, true,
+             run_computation_steps(alg, logger)
+        );
+
+        if (ALG::benchmarking_type != BenchmarkType::None) {
+            if (!do_compute_measurement) {
+                try {
+                    logger.log("Collect measurements");
+                    alg.collect_measurements();
+                } catch (std::exception &e) {
+                    std::cerr << "Exception occured durign measurement collection step: " << e.what() << std::endl;
+                    return 3;
+                }
+            }
+
+            output_measurements(
+                run_args.measurements_path,
+                do_compute_measurement ? compute_labels : alg.measurement_labels(),
+                do_compute_measurement ? sw.results() : alg.measurements(),
+                alg.additional_properties(),
+                run_args.append_measurements || loop > 0
+            );
+
+            if (!do_compute_measurement) {
+                try {
+                    logger.log("Reset measurement");
+                    alg.reset_measurements();
+                } catch (std::exception &e) {
+                    std::cerr << "Exception occured durign measurement reset step: " << e.what() << std::endl;
+                    return 3;
+                }
+            }
+        }
+
+        run_store_output(
+            alg,
+            logger,
+            run_args.get_loop_out_path(loop),
+            run_args.normalize
+        );
+
+        run_validate(
+            alg,
+            logger,
+            run_args.validate
+        );
+
     }
     return 0;
 }
@@ -240,10 +297,10 @@ int validate_input_size(
         dsize_t,
         dsize_t
     )>> input_size_validation{
-        {"one_to_one", one_to_one<double>::validate_input_size},
-        {"one_to_many", one_to_many<double>::validate_input_size},
-        {"n_to_mn", n_to_mn<double>::validate_input_size},
-        {"n_to_m", n_to_m<double>::validate_input_size}
+        {"one_to_one", one_to_one_validate_input_size},
+        {"one_to_many", one_to_many_validate_input_size},
+        {"n_to_mn", n_to_mn_validate_input_size},
+        {"n_to_m", n_to_m_validate_input_size}
     };
 
     auto validator = input_size_validation.find(alg_type);
@@ -260,75 +317,88 @@ int validate_input_size(
     return 0;
 }
 
-template<typename DATA_TYPE>
+template<typename DATA_TYPE, BenchmarkType BENCH_TYPE>
 std::unordered_map<std::string, std::function<int(
-    const std::optional<std::filesystem::path>& args_path,
-    const std::filesystem::path& ref_path,
-    const std::filesystem::path& target_path,
-    const std::optional<std::filesystem::path>& out_path,
-    const std::filesystem::path& measurements_path,
-    const po::variable_value& validate,
-    bool normalize,
-    bool append_measurements,
-    bool print_progress
+    const run_args&
 )>> get_algorithms() {
     return std::unordered_map<std::string, std::function<int(
-        const std::optional<std::filesystem::path>& args_path,
-        const std::filesystem::path& ref_path,
-        const std::filesystem::path& target_path,
-        const std::optional<std::filesystem::path>& out_path,
-        const std::filesystem::path& measurements_path,
-        const po::variable_value& validate,
-        bool normalize,
-        bool append_measurements,
-        bool print_progress
+        const run_args&
     )>>{
-        {"cpu_one_to_one", run_measurement<cpu_one_to_one<DATA_TYPE, false>>},
-        {"cpu_one_to_many", run_measurement<cpu_one_to_many<DATA_TYPE, false>>},
-        {"cpu_n_to_mn", run_measurement<cpu_n_to_mn<DATA_TYPE, false>>},
-        {"cpu_n_to_m", run_measurement<cpu_n_to_m<DATA_TYPE, false>>},
-        {"nai_orig_one_to_one", run_measurement<naive_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_orig_one_to_many", run_measurement<naive_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_orig_n_to_mn", run_measurement<naive_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_orig_n_to_m", run_measurement<naive_original_alg_n_to_m<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_warp_shuffle_one_to_one", run_measurement<naive_warp_shuffle_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_warp_shuffle_one_to_many", run_measurement<naive_warp_shuffle_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_warp_shuffle_work_distribution_one_to_one", run_measurement<naive_warp_shuffle_work_distribution_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_warp_shuffle_work_distribution_one_to_many", run_measurement<naive_warp_shuffle_work_distribution_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_shift_per_warp_one_to_one", run_measurement<naive_shift_per_warp_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_shift_per_warp_simple_indexing_one_to_one", run_measurement<naive_shift_per_warp_simple_indexing_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_shift_per_warp_work_distribution_one_to_one", run_measurement<naive_shift_per_warp_work_distribution_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_shift_per_warp_shared_mem_rows_one_to_one", run_measurement<naive_shift_per_warp_shared_mem_rows_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"nai_shift_per_warp_shared_mem_rows_one_to_many", run_measurement<naive_shift_per_warp_shared_mem_rows_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"fft_reduced_transfer_one_to_one", run_measurement<fft_reduced_transfer_one_to_one<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"fft_reduced_transfer_one_to_many", run_measurement<fft_reduced_transfer_one_to_many<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"fft_reduced_transfer_n_to_mn", run_measurement<fft_reduced_transfer_n_to_mn<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>},
-        {"fft_better_n_to_m", run_measurement<fft_better_hadamard_alg_n_to_m<DATA_TYPE, false, pinned_allocator<DATA_TYPE>>>}
+        {"cpu_one_to_one", run_measurement<cpu_one_to_one<DATA_TYPE, BENCH_TYPE>>},
+        {"cpu_one_to_many", run_measurement<cpu_one_to_many<DATA_TYPE, BENCH_TYPE>>},
+        {"cpu_n_to_mn", run_measurement<cpu_n_to_mn<DATA_TYPE, BENCH_TYPE>>},
+        {"cpu_n_to_m", run_measurement<cpu_n_to_m<DATA_TYPE, BENCH_TYPE>>},
+        {"nai_orig_one_to_one", run_measurement<naive_original_alg_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_orig_one_to_many", run_measurement<naive_original_alg_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_orig_n_to_mn", run_measurement<naive_original_alg_n_to_mn<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_orig_n_to_m", run_measurement<naive_original_alg_n_to_m<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_warp_shuffle_one_to_one", run_measurement<naive_warp_shuffle_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_warp_shuffle_one_to_many", run_measurement<naive_warp_shuffle_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_warp_shuffle_work_distribution_one_to_one", run_measurement<naive_warp_shuffle_work_distribution_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_warp_shuffle_work_distribution_one_to_many", run_measurement<naive_warp_shuffle_work_distribution_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_warp_one_to_one", run_measurement<naive_shift_per_warp_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_warp_simple_indexing_one_to_one", run_measurement<naive_shift_per_warp_simple_indexing_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_warp_work_distribution_one_to_one", run_measurement<naive_shift_per_warp_work_distribution_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_warp_shared_mem_rows_one_to_one", run_measurement<naive_shift_per_warp_shared_mem_rows_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_warp_shared_mem_rows_one_to_many", run_measurement<naive_shift_per_warp_shared_mem_rows_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"fft_reduced_transfer_one_to_one", run_measurement<fft_reduced_transfer_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"fft_reduced_transfer_one_to_many", run_measurement<fft_reduced_transfer_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"fft_orig_n_to_mn", run_measurement<fft_original_alg_n_to_mn<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"fft_reduced_transfer_n_to_mn", run_measurement<fft_reduced_transfer_n_to_mn<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"fft_better_n_to_m", run_measurement<fft_better_hadamard_alg_n_to_m<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>}
     };
 }
 
-template<typename DATA_TYPE>
-int run(
-    const std::string& alg_name,
-    const std::optional<std::filesystem::path>& args_path,
-    const std::filesystem::path& ref_path,
-    const std::filesystem::path& target_path,
-    const std::optional<std::filesystem::path>& out_path,
-    const std::filesystem::path& measurements_path,
-    const po::variable_value& validate,
-    bool normalize,
-    bool append_measurements,
-    bool print_progress
+
+
+template<typename DATA_TYPE, BenchmarkType BENCH_TYPE>
+int run_alg_type_dispatch(
+    const run_args& args
 ) {
-    auto algs = get_algorithms<DATA_TYPE>();
-    auto fnc = algs.find(alg_name);
-    if (fnc == get_algorithms<DATA_TYPE>().end()) {
-        throw std::runtime_error("Invalid algorithm specified \n"s + alg_name + "\"");
+    auto algs = get_algorithms<DATA_TYPE, BENCH_TYPE>();
+    auto fnc = algs.find(args.alg_name);
+    if (fnc == get_algorithms<DATA_TYPE, BENCH_TYPE>().end()) {
+        throw std::runtime_error("Invalid algorithm specified \n"s + args.alg_name + "\"");
     }
-    return fnc->second(args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append_measurements, print_progress);
+    return fnc->second(args);
+}
+
+template<BenchmarkType BENCH_TYPE>
+int run_data_type_dispatch(
+    const run_args& args
+) {
+    if (args.data_type == "single") {
+        return run_alg_type_dispatch<float, BENCH_TYPE>(args);
+    } else if (args.data_type == "double") {
+        return run_alg_type_dispatch<double, BENCH_TYPE> (args);
+    } else {
+        std::cerr << "Unknown data type " << args.data_type << "\n";
+        return 1;
+    }
+}
+
+int run_benchmark_type_dispatch(
+    const run_args& args
+) {
+    switch (args.benchmark_type) {
+        case BenchmarkType::Compute:
+            return run_data_type_dispatch<BenchmarkType::Compute>(args);
+        case BenchmarkType::CommonSteps:
+            return run_data_type_dispatch<BenchmarkType::CommonSteps>(args);
+        case BenchmarkType::Algorithm:
+            return run_data_type_dispatch<BenchmarkType::Algorithm>(args);
+        default:
+            std::cerr << "Unknown benchmark type " << args.benchmark_type << "\n";
+            return 1;
+    }
+}
+
+int run(
+    const run_args& args
+) {
+    return run_benchmark_type_dispatch(args);
 }
 
 void print_help(std::ostream& out, const std::string& name, const po::options_description& options) {
@@ -386,6 +456,9 @@ int main(int argc, char **argv) {
             ("normalize,n", po::bool_switch()->default_value(false), "If algorithm is fft, normalize the results")
             ("append,a", po::bool_switch()->default_value(false), "Append time measurements without the header if the times file already exists instead of overwriting it")
             ("no_progress,p", po::bool_switch()->default_value(false), "Do not print human readable progress, instead any messages to stdout will be formated for machine processing")
+            ("benchmark_type,b", po::value<BenchmarkType>()->default_value(BenchmarkType::Compute), "Which part should be measured, available parts are Compute, CommonSteps, Algorithm")
+            ("outer_loops,l", po::value<std::size_t>()->default_value(1), "How many measurements of the computation loop should be done with the loaded data")
+            ("min_time,m", po::value<double>()->default_value(1), "The minimum time to consider measurement statistically relevant, in seconds")
             ("args_path", po::value<std::filesystem::path>(), "Path to the JSON file containing arguments for the algorithm")
             ;
 
@@ -467,39 +540,16 @@ int main(int argc, char **argv) {
             );
             po::notify(vm);
 
-            auto alg_name = vm["alg"].as<std::string>();
-            auto data_type = vm["data_type"].as<std::string>();
-            auto args_path = vm.count("args_path") ? std::optional<std::filesystem::path>{vm["args_path"].as<std::filesystem::path>()} : std::nullopt;
-            auto ref_path = vm["ref_path"].as<std::filesystem::path>();
-            auto target_path = vm["target_path"].as<std::filesystem::path>();
-            auto measurements_path = vm["times"].as<std::filesystem::path>();
-
-            auto out_path_arg = vm["out"].as<std::filesystem::path>();
-            auto out_path = !out_path_arg.empty() ? std::optional<std::filesystem::path>(out_path_arg) : std::nullopt;
-
-            auto normalize = vm["normalize"].as<bool>();
-            auto append = vm["append"].as<bool>();
-            auto progress = !vm["no_progress"].as<bool>();
-            auto validate = vm["validate"];
-
-
-            // TODO: Change if there can be different algorithms for float and double
-            auto algs = get_algorithms<float>();
-            if (algs.find(alg_name) == algs.end()) {
-                std::cerr << "Unknown algorithm \"" << alg_name << "\", expected one of " << get_sorted_keys(algs) << std::endl;
+            auto run_args = run_args::from_variables_map(vm, get_key_set(get_algorithms<float, BenchmarkType::Unknown>()));
+            if (!run_args.has_value()) {
                 print_help(std::cerr, argv[0], all_options);
                 return 1;
             }
-
-            if (data_type == "single") {
-                return run<float>(alg_name, args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
-            } else if (data_type == "double") {
-                return run<double> (alg_name, args_path, ref_path, target_path, out_path, measurements_path, validate, normalize, append, progress);
-            } else {
-                std::cerr << "Unknown data type " << data_type << "\n";
+            auto ret = run(run_args.value());
+            if (ret == 1) {
                 print_help(std::cerr, argv[0], all_options);
-                return 1;
             }
+            return ret;
 
         } else if (cmd == "validate") {
             std::vector<std::string> opts = po::collect_unrecognized(parsed.options, po::include_positional);
@@ -521,7 +571,7 @@ int main(int argc, char **argv) {
 
             validate<double>(template_data, validate_data, normalize, csv);
         } else if (cmd == "list") {
-            auto algs = get_sorted_keys(get_algorithms<float>());
+            auto algs = get_sorted_keys(get_algorithms<float, BenchmarkType::Unknown>());
             for (auto&& alg: algs) {
                 std::cout << alg << "\n";
             }

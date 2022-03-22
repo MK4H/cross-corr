@@ -9,7 +9,7 @@
 #include <stdexcept>
 
 #include "types.cuh"
-#include "helpers.cuh"
+#include "cuda_helpers.cuh"
 #include "shared_mem.cuh"
 #include "row_distribution.cuh"
 #include "argument_error.hpp"
@@ -1031,6 +1031,7 @@ void run_ccn_shift_per_warp_shared_mem_rows(
     dsize_t shared_mem_buffer_size = shared_mem_row_size * shared_mem_rows * sizeof(T);
     // Two buffers for ring buffer of submatrices from left input
     dsize_t shared_mem_size = (2 + right_matrices_per_block) * shared_mem_buffer_size;
+
     if (strided_load) {
         ccn_shift_per_warp_shared_mem_rows<true><<<num_blocks, num_threads, shared_mem_size>>>(
             left,

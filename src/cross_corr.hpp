@@ -7,18 +7,16 @@
 #include <cufft.h>
 
 #include "matrix.hpp"
-#include "helpers.cuh"
 #include "stopwatch.hpp"
 
 #include "kernels.cuh"
 
 #include "fft_helpers.hpp"
+#include "run_args.hpp"
 
 namespace cross {
 
 using sw_clock = std::chrono::high_resolution_clock;
-
-
 
 /**
  * Load matrix array from many csv files, one matrix per csv file
@@ -50,59 +48,58 @@ data_array<T,ALLOC> load_matrix_from_csv(const std::filesystem::path& path) {
     return load_matrix_array_from_csv<T, PADDING, ALLOC>(path);
 }
 
-template<typename T, typename ALLOC = std::allocator<T>>
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
 class cross_corr_alg {
 public:
     using data_type = T;
+    constexpr static BenchmarkType benchmarking_type = BENCH_TYPE;
 
-    cross_corr_alg(bool is_fft, std::size_t num_measurements)
-        :is_fft_(is_fft), sw_(num_measurements + labels.size())
+    cross_corr_alg(bool is_fft, std::size_t num_measurements, std::chrono::nanoseconds min_measured_time)
+        :is_fft_(is_fft), sw_(measure_common() ? labels.size() : num_measurements, min_measured_time)
     {}
 
-    void start() {
-        sw_.reset();
-        start_ = sw_.now();
-    }
-
     void load(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) {
-        CPU_MEASURE(1,
+        CPU_MEASURE(0, measure_common(), this->sw_, false,
             load_impl(ref_path, target_path);
         );
     }
 
     void prepare() {
-        CPU_MEASURE(2,
+        CPU_MEASURE(1, measure_common(), this->sw_, false,
             prepare_impl();
         );
     }
 
     void transfer() {
-        CPU_MEASURE(3,
+        CPU_MEASURE(2, measure_common(), this->sw_, true,
             transfer_impl();
         );
     }
 
     void run() {
-        CPU_MEASURE(4,
+        CPU_ADAPTIVE_MEASURE(3, measure_common(), this->sw_, true,
             run_impl();
         );
     }
 
     void finalize() {
-        CPU_MEASURE(5,
+        CPU_MEASURE(4, measure_common(), this->sw_, true,
             finalize_impl();
         );
     }
 
     void free() {
-        CPU_MEASURE(6,
+        CPU_MEASURE(5, measure_common(), this->sw_, false,
             free_impl();
         );
     }
 
-    void stop() {
-        sw_.cpu_measure(0, start_);
+    void collect_measurements() {
         sw_.cuda_collect();
+    }
+
+    void reset_measurements() {
+        sw_.reset();
     }
 
     virtual const data_array<T, ALLOC>& refs() const = 0;
@@ -123,22 +120,14 @@ public:
 
 
     std::vector<std::string> measurement_labels() const {
-        auto ret = labels;
-        auto child_labels = measurement_labels_impl();
-        ret.insert(
-            ret.end(),
-            std::make_move_iterator(child_labels.begin()),
-            std::make_move_iterator(child_labels.end())
-        );
-
-        return ret;
+        return measure_common() ? labels : measurement_labels_impl();
     };
 
     bool is_fft() const {
         return is_fft_;
     }
 
-    const std::vector<sw_clock::duration>& measurements() const {
+    const std::vector<stopwatch<sw_clock>::result>& measurements() const {
         return sw_.results();
     }
 
@@ -161,14 +150,6 @@ protected:
         }
     }
 
-    dsize_t label_index(dsize_t idx) const {
-        return labels.size() + idx;
-    }
-
-    virtual std::vector<std::string> measurement_labels_impl() const {
-        return std::vector<std::string>{};
-    }
-
     virtual void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) = 0;
     virtual void prepare_impl() {
 
@@ -186,10 +167,16 @@ protected:
 
     virtual data_array<T> get_valid_results() const = 0;
 
-    sw_clock::time_point start_;
+    virtual std::vector<std::string> measurement_labels_impl() const {
+        return std::vector<std::string>{};
+    }
 
 private:
     static std::vector<std::string> labels;
+
+    static constexpr bool measure_common() {
+        return BENCH_TYPE == BenchmarkType::CommonSteps;
+    }
 
     data_array<T> valid_results(const std::optional<std::filesystem::path>& valid_data_path = std::nullopt) const {
         if (valid_data_path.has_value()) {
@@ -200,9 +187,8 @@ private:
     }
 };
 
-template<typename T, typename ALLOC>
-std::vector<std::string> cross_corr_alg<T, ALLOC>::labels{
-    "Total",
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC>
+std::vector<std::string> cross_corr_alg<T, BENCH_TYPE, ALLOC>::labels{
     "Load",
     "Prepare",
     "Transfer",
