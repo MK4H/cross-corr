@@ -43,6 +43,7 @@ set(CUDA_SOURCES
         ${CMAKE_SOURCE_DIR}/src/hadamard.cu
         ${CMAKE_SOURCE_DIR}/src/naive_original.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle.cu
+        ${CMAKE_SOURCE_DIR}/src/naive_shuffle_n_to_m.cu
         ${CMAKE_SOURCE_DIR}/src/naive_warp_per_shift.cu
         ${CMAKE_SOURCE_DIR}/src/scatter.cu
 )
