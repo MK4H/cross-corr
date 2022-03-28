@@ -177,22 +177,6 @@ __device__ void warp_shuffle_impl(
         }
     }
 
-//    if (warp.thread_rank() == 0) {
-//        printf("Block: [%u, %u, %u], Warp: %u, Output: [%u, %u], Sum: [%f, %f, %f, %f]\n",
-//               cg::this_thread_block().group_index().x,
-//               cg::this_thread_block().group_index().y,
-//               cg::this_thread_block().group_index().z,
-//               warp.meta_group_rank(),
-//               args.output_pos.x,
-//               args.output_pos.y,
-//               sum[0],
-//               sum[1],
-//               sum[2],
-//               sum[3]
-//               );
-//    }
-//    return;
-
     if (args.output_pos.x < args.search_size.x && args.output_pos.y < args.search_size.y) {
         auto output_offset = args.output_pos.linear_idx(args.search_size.x);
         for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
@@ -317,19 +301,6 @@ __global__ void ccn_warp_shuffle_n_to_m_work_distribution(
     dsize_t left_matrix_group_start_idx = left_matrix_group_idx * left_matrices_per_thread;
     dsize_t right_matrix_group_start_idx = right_matrix_group_idx * right_matrices_per_thread;
 
-//    if (ctb.thread_rank() == 0) {
-//        printf("Block: [%u, %u, %u],  Left matrix group: %u, Right matrix group: %u, Matrix group block offset: %u, Warp output x offset: %u\n",
-//               ctb.group_index().x,
-//               ctb.group_index().y,
-//               ctb.group_index().z,
-//               left_matrix_group_idx,
-//               right_matrix_group_idx,
-//               matrix_group_block_offset,
-//               warp_output_x_offset);
-//    }
-//
-//    return;
-
     // Distribute rows of a single shift between multiple workers,
     // in this case threads
     // Return the assigned output row (which corresponds to a shift),
@@ -409,24 +380,6 @@ __global__ void ccn_warp_shuffle_n_to_m_work_distribution(
 
     dsize_t thread_num_left_matrices = min(num_left_matrices - left_matrix_group_start_idx, left_matrices_per_thread);
     dsize_t thread_num_right_matrices = min(num_right_matrices - right_matrix_group_start_idx, right_matrices_per_thread);
-
-//    if (warp.thread_rank() == 0) {
-//        printf("Block: [%u, %u, %u], Warp: %u, Output: [%u, %u], Overlapping rows: %u, Rows per worker: %u, Warp y: [%u, %u], Num left: %u, Num right: %u\n",
-//               ctb.group_index().x,
-//               ctb.group_index().y,
-//               ctb.group_index().z,
-//               warp.meta_group_rank(),
-//               output_pos.x,
-//               output_pos.y,
-//               shared_overlapping_rows,
-//               rows_per_worker,
-//               warp_y_right_start,
-//               warp_y_right_end,
-//               thread_num_left_matrices,
-//               thread_num_right_matrices
-//               );
-//    }
-//    return;
 
     auto args = create_warp_shuffle_impl_args(
         left + left_matrix_group_start_idx * matrix_size.area(),
