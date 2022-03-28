@@ -86,10 +86,11 @@ private:
 template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
 class naive_original_alg_n_to_m: public n_to_m<T, BENCH_TYPE, ALLOC> {
 public:
-    explicit naive_original_alg_n_to_m([[maybe_unused]] const json& args, std::chrono::nanoseconds min_measured_time)
-        :n_to_m<T, BENCH_TYPE, ALLOC>(false, labels.size(), min_measured_time), refs_(), targets_(), results_()
+    explicit naive_original_alg_n_to_m(const json& args, std::chrono::nanoseconds min_measured_time)
+        :n_to_m<T, BENCH_TYPE, ALLOC>(false, 0, min_measured_time), cudaStreams(), refs_(), targets_(), results_()
     {
-
+        num_cuda_streams_ = args.value("num_cuda_streams", 8);
+        cudaStreams.resize(num_cuda_streams_);
     }
 
     const data_array<T, ALLOC>& refs() const override {
@@ -101,6 +102,250 @@ public:
 
     const data_array<T, ALLOC>& results() const override {
         return results_;
+    }
+
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("num_cuda_streams", std::to_string(num_cuda_streams_))
+        };
+    }
+
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& def_path) override {
+        refs_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(def_path);
+
+        this->check_matrices_same_size(refs_, targets_);
+    }
+
+    void prepare_impl() override {
+        auto result_matrix_size = refs_.matrix_size() + targets_.matrix_size() - 1;
+        results_ = data_array<T, ALLOC>{result_matrix_size, refs_.num_matrices() * targets_.num_matrices()};
+
+        cuda_malloc(&d_refs_, refs_.size());
+        cuda_malloc(&d_targets_, targets_.size());
+        cuda_malloc(&d_results_, results_.size());
+
+        for (auto & cudaStream : cudaStreams) {
+            CUCH(cudaStreamCreate(&cudaStream));
+        }
+    }
+
+    void transfer_impl() override {
+        cuda_memcpy_to_device(d_refs_, refs_);
+        cuda_memcpy_to_device(d_targets_, targets_);
+    }
+
+    void run_impl() override {
+         start_kernels();
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(results_, d_results_);
+    }
+
+    void free_impl() override {
+        for (auto & cudaStream : cudaStreams) {
+            CUCH(cudaStreamDestroy(cudaStream));
+        }
+
+        CUCH(cudaFree(d_results_));
+        CUCH(cudaFree(d_targets_));
+        CUCH(cudaFree(d_refs_));
+    }
+
+private:
+
+    data_array<T, ALLOC> refs_;
+    data_array<T, ALLOC> targets_;
+
+    data_array<T, ALLOC> results_;
+
+    std::vector<cudaStream_t> cudaStreams;
+
+    T* d_refs_;
+    T* d_targets_;
+    T* d_results_;
+
+    dsize_t num_cuda_streams_;
+
+    void start_kernels() {
+        for (dsize_t ref = 0; ref < refs_.num_matrices(); ++ref) {
+
+            run_cross_corr_naive_original(
+                d_refs_ + ref * refs_.matrix_size().area(),
+                d_targets_,
+                d_results_ + (ref * targets_.num_matrices()) * results_.matrix_size().area(),
+                targets_.matrix_size(),
+                results_.matrix_size(),
+                1,
+                targets_.num_matrices(),
+                cudaStreams[ref % cudaStreams.size()]
+            );
+        }
+    }
+};
+
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
+class naive_warp_shuffle_work_distribution_n_to_m: public n_to_m<T, BENCH_TYPE, ALLOC> {
+public:
+    explicit naive_warp_shuffle_work_distribution_n_to_m([[maybe_unused]] const json& args, std::chrono::nanoseconds min_measured_time)
+        :n_to_m<T, BENCH_TYPE, ALLOC>(false, 0, min_measured_time), cudaStreams(), refs_(), targets_(), results_()
+    {
+        block_y_size_ = args.value("block_y_size", 8);
+        right_matrices_per_thread_ = args.value("right_matrices_per_thread", 2);
+        rows_per_thread_ = args.value("rows_per_thread", 10);
+        distribution_type_ = from_string(args.value("distribution_type", "rectangle"));
+        num_cuda_streams_ = args.value("num_cuda_streams", 8);
+
+        cudaStreams.resize(num_cuda_streams_);
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return refs_;
+    }
+    const data_array<T, ALLOC>& targets() const override {
+        return targets_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return results_;
+    }
+
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("block_y_size", std::to_string(block_y_size_)),
+            std::make_pair("right_matrices_per_thread", std::to_string(right_matrices_per_thread_)),
+            std::make_pair("rows_per_thread", std::to_string(rows_per_thread_)),
+            std::make_pair("distribution_type", to_string(distribution_type_)),
+            std::make_pair("num_cuda_streams", std::to_string(num_cuda_streams_))
+        };
+    }
+
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& def_path) override {
+        refs_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_array_from_csv<T, no_padding, ALLOC>(def_path);
+
+        this->check_matrices_same_size(refs_, targets_);
+    }
+
+    void prepare_impl() override {
+        auto result_matrix_size = refs_.matrix_size() + targets_.matrix_size() - 1;
+        results_ = data_array<T, ALLOC>{result_matrix_size, refs_.num_matrices() * targets_.num_matrices()};
+
+        cuda_malloc(&d_refs_, refs_.size());
+        cuda_malloc(&d_targets_, targets_.size());
+        cuda_malloc(&d_results_, results_.size());
+
+        for (auto & cudaStream : cudaStreams) {
+            CUCH(cudaStreamCreate(&cudaStream));
+        }
+    }
+
+    void transfer_impl() override {
+        cuda_memcpy_to_device(d_refs_, refs_);
+        cuda_memcpy_to_device(d_targets_, targets_);
+    }
+
+    void run_impl() override {
+        switch (distribution_type_) {
+            case distribution::none:
+                start_kernels<no_distribution>();
+                break;
+            case distribution::rectangle:
+                start_kernels<rectangle_distribution>();
+                break;
+            case distribution::triangle:
+                start_kernels<triangle_distribution>();
+                break;
+        }
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(results_, d_results_);
+    }
+
+    void free_impl() override {
+        for (auto & cudaStream : cudaStreams) {
+            CUCH(cudaStreamDestroy(cudaStream));
+        }
+
+        CUCH(cudaFree(d_results_));
+        CUCH(cudaFree(d_targets_));
+        CUCH(cudaFree(d_refs_));
+    }
+
+private:
+    data_array<T, ALLOC> refs_;
+    data_array<T, ALLOC> targets_;
+
+    data_array<T, ALLOC> results_;
+
+    std::vector<cudaStream_t> cudaStreams;
+
+    T* d_refs_;
+    T* d_targets_;
+    T* d_results_;
+
+    dsize_t block_y_size_;
+    dsize_t right_matrices_per_thread_;
+    dsize_t rows_per_thread_;
+    distribution distribution_type_;
+    dsize_t num_cuda_streams_;
+
+    template<typename DISTRIBUTION>
+    void start_kernels() {
+        for (dsize_t ref = 0; ref < refs_.num_matrices(); ++ref) {
+            run_ccn_warp_shuffle_work_distribution<DISTRIBUTION>(
+                d_refs_ + ref * refs_.matrix_size().area(),
+                d_targets_,
+                d_results_ + (ref * targets_.num_matrices()) * results_.matrix_size().area(),
+                targets_.matrix_size(),
+                results_.matrix_size(),
+                targets_.num_matrices(),
+                block_y_size_,
+                right_matrices_per_thread_,
+                rows_per_thread_,
+                cudaStreams[ref % cudaStreams.size()]
+            );
+        }
+    }
+};
+
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
+class naive_shuffle_specialized_n_to_m: public n_to_m<T, BENCH_TYPE, ALLOC> {
+public:
+    explicit naive_shuffle_specialized_n_to_m(const json& args, std::chrono::nanoseconds min_measured_time)
+        :n_to_m<T, BENCH_TYPE, ALLOC>(false, 0, min_measured_time), refs_(), targets_(), results_()
+    {
+        block_y_size_ = args.value("block_y_size", 8);
+        left_matrices_per_thread_ = args.value("right_matrices_per_thread", 2);
+        right_matrices_per_thread_ = args.value("right_matrices_per_thread", 2);
+        rows_per_thread_ = args.value("rows_per_thread", 10);
+        // TODO: Add default work distribution
+        distribution_type_ = from_string(args.value("distribution_type", "none"));
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return refs_;
+    }
+    const data_array<T, ALLOC>& targets() const override {
+        return targets_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return results_;
+    }
+
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("block_y_size", std::to_string(block_y_size_)),
+            std::make_pair("left_matrices_per_thread", std::to_string(left_matrices_per_thread_)),
+            std::make_pair("right_matrices_per_thread", std::to_string(right_matrices_per_thread_)),
+            std::make_pair("rows_per_thread", std::to_string(rows_per_thread_)),
+            std::make_pair("distribution_type", to_string(distribution_type_))
+        };
     }
 
 protected:
@@ -126,9 +371,17 @@ protected:
     }
 
     void run_impl() override {
-        CPU_MEASURE(0, this->measure_alg(), this->sw_, true,
-                     start_kernels()
-        );
+        switch (distribution_type_) {
+            case distribution::none:
+                start_kernels<no_distribution>();
+                break;
+            case distribution::rectangle:
+                start_kernels<rectangle_distribution>();
+                break;
+            case distribution::triangle:
+                start_kernels<triangle_distribution>();
+                break;
+        }
     }
 
     void finalize_impl() override {
@@ -141,13 +394,7 @@ protected:
         CUCH(cudaFree(d_refs_));
     }
 
-    std::vector<std::string> measurement_labels_impl() const override {
-        return this->measure_alg() ? labels : std::vector<std::string>{};
-    }
-
 private:
-
-    static std::vector<std::string> labels;
 
     data_array<T, ALLOC> refs_;
     data_array<T, ALLOC> targets_;
@@ -158,25 +405,28 @@ private:
     T* d_targets_;
     T* d_results_;
 
-    void start_kernels() {
-        for (dsize_t ref = 0; ref < refs_.num_matrices(); ++ref) {
-            // TODO: Start in multiple streams
-            run_cross_corr_naive_original(
-                d_refs_ + ref * refs_.matrix_size().area(),
-                d_targets_,
-                d_results_ + (ref * targets_.num_matrices()) * results_.matrix_size().area(),
-                targets_.matrix_size(),
-                results_.matrix_size(),
-                1,
-                targets_.num_matrices()
-            );
-        }
-    }
-};
+    dsize_t block_y_size_;
+    dsize_t left_matrices_per_thread_;
+    dsize_t right_matrices_per_thread_;
+    dsize_t rows_per_thread_;
+    distribution distribution_type_;
 
-template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC>
-std::vector<std::string> naive_original_alg_n_to_m<T, BENCH_TYPE, ALLOC>::labels{
-    "Kernel"
+    template<typename DISTRIBUTION>
+    void start_kernels() {
+        run_ccn_warp_shuffle_n_to_m_work_distribution<DISTRIBUTION>(
+            d_refs_,
+            d_targets_,
+            d_results_,
+            targets_.matrix_size(),
+            results_.matrix_size(),
+            refs_.num_matrices(),
+            targets_.num_matrices(),
+            block_y_size_,
+            left_matrices_per_thread_,
+            right_matrices_per_thread_,
+            rows_per_thread_
+        );
+    }
 };
 
 

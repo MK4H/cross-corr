@@ -339,6 +339,8 @@ std::unordered_map<std::string, std::function<int(
         {"nai_warp_shuffle_one_to_many", run_measurement<naive_warp_shuffle_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_warp_shuffle_work_distribution_one_to_one", run_measurement<naive_warp_shuffle_work_distribution_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_warp_shuffle_work_distribution_one_to_many", run_measurement<naive_warp_shuffle_work_distribution_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_warp_shuffle_work_distribution_n_to_m", run_measurement<naive_warp_shuffle_work_distribution_n_to_m<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shuffle_specialized_n_to_m", run_measurement<naive_shuffle_specialized_n_to_m<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_one_to_one", run_measurement<naive_shift_per_warp_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_simple_indexing_one_to_one", run_measurement<naive_shift_per_warp_simple_indexing_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_work_distribution_one_to_one", run_measurement<naive_shift_per_warp_work_distribution_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
@@ -386,6 +388,8 @@ int run_benchmark_type_dispatch(
     const run_args& args
 ) {
     switch (args.benchmark_type) {
+        case BenchmarkType::None:
+            return run_data_type_dispatch<BenchmarkType::None>(args);
         case BenchmarkType::Compute:
             return run_data_type_dispatch<BenchmarkType::Compute>(args);
         case BenchmarkType::CommonSteps:
