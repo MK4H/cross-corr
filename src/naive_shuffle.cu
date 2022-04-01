@@ -36,7 +36,7 @@ struct warp_shuffle_impl_args {
     RES* __restrict__ out;
     dsize2_t warp_right_start;
     dsize2_t warp_right_end;
-    dsize2_t warp_min_shift;
+    vec2<int> warp_min_shift;
     dsize2_t output_pos;
     dsize2_t matrix_size;
     dsize2_t search_size;
@@ -47,7 +47,7 @@ struct warp_shuffle_impl_args {
         RES* __restrict__ out,
         dsize2_t warp_right_start,
         dsize2_t warp_right_end,
-        dsize2_t warp_min_shift,
+        vec2<int> warp_min_shift,
         dsize2_t output_pos,
         dsize2_t matrix_size,
         dsize2_t search_size
@@ -66,7 +66,7 @@ __device__ warp_shuffle_impl_args<T, RES> create_warp_shuffle_impl_args(
     RES* __restrict__ out,
     dsize2_t warp_right_start,
     dsize2_t warp_right_end,
-    dsize2_t warp_min_shift,
+    vec2<int> warp_min_shift,
     dsize2_t output_pos,
     dsize2_t matrix_size,
     dsize2_t search_size
@@ -97,7 +97,7 @@ __device__ void warp_shuffle_impl(
 
     for (dsize_t warp_y_right = args.warp_right_start.y; warp_y_right < args.warp_right_end.y; warp_y_right += 1) {
         // In y axis, both max and min shift are equal in the current implementation
-        int warp_y_left = static_cast<int>(warp_y_right) + args.warp_min_shift.y;
+        dsize_t warp_y_left = warp_y_right + args.warp_min_shift.y;
 
         const dsize_t right_row_offset = warp_y_right * args.matrix_size.x;
         const T* left_row = args.left + warp_y_left * args.matrix_size.x;
