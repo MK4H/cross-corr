@@ -106,18 +106,6 @@ __device__ void compute_row_group(
 
     int warp_x_left = static_cast<int>(args.warp_right_start.x) + args.warp_min_shift.x;
 
-//    if (warp.thread_rank() == 0 && warp.meta_group_rank() == 1) {
-//        printf("Block: [%u, %u], Warp: %u, Right rows: %u, Y shift: %d, Right start Y: %u\n",
-//               ctb.group_index().x,
-//               ctb.group_index().y,
-//               warp.meta_group_rank(),
-//               NUM_RIGHT_ROWS,
-//               y_shift,
-//               warp_y_right_start
-//               );
-//    }
-
-
     // Preload the first values from left matrix
     T thread_left_bottom = load_with_bounds_check(
         left_row,
@@ -129,16 +117,6 @@ __device__ void compute_row_group(
     for (dsize_t r = 0; r < NUM_RIGHT_ROWS; ++r) {
         sum[r] = 0;
     }
-
-//    if (warp.thread_rank() == 0 && warp.meta_group_rank() == 0) {
-//        printf("Block: [%u, %u], Warp: %u, X: [%u, %u]\n",
-//               ctb.group_index().x,
-//               ctb.group_index().y,
-//               warp.meta_group_rank(),
-//               args.warp_right_start.x,
-//               args.warp_right_end.x
-//               );
-//    }
 
     for (
         dsize_t warp_x_right = args.warp_right_start.x;
@@ -184,17 +162,6 @@ __device__ void compute_row_group(
                 //  at last place, so we can pass it first alone
                 //  then with min_shift + 1, then with min_shift + 2 etc.
                 sum[r] += thread_left_bottom * right_val;
-
-//                if (warp.thread_rank() == 0 && warp.meta_group_rank() == 0) {
-//                    printf("Block: [%u, %u], Warp: %u, Row: %u Left: %f, Right: %f\n",
-//                           ctb.group_index().x,
-//                           ctb.group_index().y,
-//                           warp.meta_group_rank(),
-//                           r,
-//                           thread_left_bottom,
-//                           right_val
-//                    );
-//                }
             }
 
             // Shuffle does modulo srcLane automatically
@@ -206,48 +173,13 @@ __device__ void compute_row_group(
         }
     }
 
-//    if (warp.thread_rank() == 0 && warp.meta_group_rank() == 1) {
-//        for (dsize_t r = 0; r < NUM_RIGHT_ROWS; ++r) {
-//            printf("Block: [%u, %u], Warp: %u, Rows: %u, sum[%u] == %f\n",
-//                   ctb.group_index().x,
-//                   ctb.group_index().y,
-//                   warp.meta_group_rank(),
-//                   NUM_RIGHT_ROWS,
-//                   r,
-//                   sum[r]
-//            );
-//        }
-//    }
-
     for (dsize_t r = 0; r < NUM_RIGHT_ROWS; ++r) {
         // Res contains first the results of min_shift for all threads of the block,
         // then results of min_shift + 1 for all threads of the block,
         // up to the results of min_shift + NUM_RIGHT_ROWS in warp_shuffle_impl
         if constexpr(REVERSE_OUTPUT) {
-//            if (warp.thread_rank() == 0 && warp.meta_group_rank() == 3) {
-//                printf("Block: [%u, %u], Warp: %u, Rows: %u, Previous res: %f, sum[%u] == %f\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       warp.meta_group_rank(),
-//                       NUM_RIGHT_ROWS,
-//                       res[(NUM_RIGHT_ROWS - 1 - r) * ctb.size() + ctb.thread_rank()],
-//                       r,
-//                       sum[r]
-//                );
-//            }
             res[(NUM_RIGHT_ROWS - 1 - r) * ctb.size() + ctb.thread_rank()] += sum[r];
         } else {
-//            if (warp.thread_rank() == 0 && warp.meta_group_rank() == 3) {
-//                printf("Block: [%u, %u], Warp: %u, Rows: %u, Previous res: %f, sum[%u] == %f\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       warp.meta_group_rank(),
-//                       NUM_RIGHT_ROWS,
-//                       res[r * ctb.size() + ctb.thread_rank()],
-//                       r,
-//                       sum[r]
-//                );
-//            }
             res[r * ctb.size() + ctb.thread_rank()] += sum[r];
         }
     }
@@ -290,17 +222,6 @@ __device__ void startup(
     RES* __restrict__ res
 ) {
     if constexpr(NUM_RIGHT_ROWS < MAX_NUM_RIGHT_ROWS) {
-//        if (warp.thread_rank() == 0) {
-//            printf("Block: [%u, %u], Warp: %u, Left: %d, Right start Y: %u, Min shift: %d\n",
-//                   ctb.group_index().x,
-//                   ctb.group_index().y,
-//                   warp.meta_group_rank(),
-//                   static_cast<int>(args.warp_right_start.y) + args.warp_min_shift.y + NUM_RIGHT_ROWS - 1,
-//                   args.warp_right_start.y,
-//                   args.warp_min_shift.y
-//            );
-//        }
-
         if (static_cast<int>(args.warp_right_start.y) + args.warp_min_shift.y + NUM_RIGHT_ROWS - 1 >= 0) {
             compute_row_group<NUM_RIGHT_ROWS, true>(
                 ctb,
@@ -323,17 +244,6 @@ __device__ void wind_down(
     RES* __restrict__ res
 ) {
     if constexpr(NUM_RIGHT_ROWS > 0) {
-//        if (warp.thread_rank() == 0 && warp.meta_group_rank() == 0) {
-//            printf("Block: [%u, %u], Warp: %u, Left: %u, Right end Y: %u, Max shift: %d\n",
-//                   ctb.group_index().x,
-//                   ctb.group_index().y,
-//                   warp.meta_group_rank(),
-//                   args.warp_right_end.y - NUM_RIGHT_ROWS + args.warp_max_shift.y,
-//                   args.warp_right_end.y,
-//                   args.warp_max_shift.y
-//            );
-//        }
-
         if (args.warp_right_end.y - NUM_RIGHT_ROWS + args.warp_max_shift.y < args.matrix_size.y) {
             compute_row_group<NUM_RIGHT_ROWS, true>(
                 ctb,
@@ -366,17 +276,6 @@ __device__ void multirow_shuffle_impl(
      * we need to stop NUM_RIGHT_ROWS before the end
      */
     int end = args.warp_right_end.y - (NUM_RIGHT_ROWS - 1);
-//    if (warp.thread_rank() == 0 && warp.meta_group_rank() <= 1) {
-//        printf("Block: [%u, %u], Warp: %u, Start: %u, End: %d, Warp end: %u, NUM_RIGHT_ROWS: %u\n",
-//               ctb.group_index().x,
-//               ctb.group_index().y,
-//               warp.meta_group_rank(),
-//               args.warp_right_start.y,
-//               end,
-//               args.warp_right_end.y,
-//               NUM_RIGHT_ROWS
-//        );
-//    }
 
     for (int warp_y_right = args.warp_right_start.y; warp_y_right < end; warp_y_right += 1) {
         compute_row_group<NUM_RIGHT_ROWS, true>(
@@ -398,31 +297,10 @@ __device__ void multirow_shuffle_impl(
     if (args.output_pos.x < args.search_size.x && args.output_pos.y < args.search_size.y) {
         for (dsize_t r = 0; r < NUM_RIGHT_ROWS; ++r) {
             auto output_offset = first_output_offset + r * args.search_size.x;
-//            if (warp.thread_rank() == 0 && warp.meta_group_rank() == 3) {
-//                printf("Block: [%u, %u], Warp: %u, res[%u] == %f, First output pos: [%u, %u], Output offset: %u\n",
-//                       ctb.group_index().x,
-//                       ctb.group_index().y,
-//                       warp.meta_group_rank(),
-//                       r * ctb.size() + ctb.thread_rank(),
-//                       res[r * ctb.size() + ctb.thread_rank()],
-//                       args.output_pos.x,
-//                       args.output_pos.y,
-//                       output_offset
-//                );
-//            }
             auto val = res[r * ctb.size() + ctb.thread_rank()];
             if constexpr(ATOMIC) {
                 atomicAdd(matrix + output_offset, val);
             } else {
-//                if (output_offset == 304) {
-//                    printf("Block: [%u, %u], Warp: %u, matrix[%u] == %f\n",
-//                           ctb.group_index().x,
-//                           ctb.group_index().y,
-//                           warp.meta_group_rank(),
-//                           output_offset,
-//                           val
-//                    );
-//                }
                 matrix[output_offset] = val;
             }
         }
@@ -561,21 +439,6 @@ __global__ void ccn_multirow_shuffle(
     // so to get the number of shifts with both sides inclusive, we need to add 1
     auto warp_num_right_rows = static_cast<dsize_t>(max(warp_max_shift.y - warp_min_shift.y + 1, 0));
 
-//    if (warp.thread_rank() == 0 && warp.meta_group_rank() == 1) {
-//        printf("Block: [%u, %u], Warp: %u, Min shift: [%d, %d], Max shift: [%d,%d], Num right rows: %u, Y: [%u, %u]\n",
-//               ctb.group_index().x,
-//               ctb.group_index().y,
-//               warp.meta_group_rank(),
-//               warp_min_shift.x,
-//               warp_min_shift.y,
-//               warp_max_shift.x,
-//               warp_max_shift.y,
-//               warp_num_right_rows,
-//               warp_y_right_start,
-//               warp_y_right_end
-//        );
-//    }
-
     auto args = create_warp_shuffle_impl_args(
         left,
         right,
@@ -596,17 +459,6 @@ __global__ void ccn_multirow_shuffle(
         args,
         res
     );
-
-//    ctb.sync();
-//    if (ctb.thread_rank() == 0) {
-//        for (dsize_t i = ctb.thread_rank(); i < max_right_rows * ctb.size(); ++i) {
-//            printf("res[%u] == %f\n",
-//                i,
-//                res[i]
-//            );
-//        }
-//
-//    }
 }
 
 template<typename T, typename RES>
