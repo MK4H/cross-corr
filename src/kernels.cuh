@@ -171,4 +171,16 @@ void run_ccn_multirow_shuffle(
     dsize_t max_right_rows
 );
 
+template<typename T, typename RES>
+void run_ccn_multileft_shuffle(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_rows_per_block,
+    dsize_t max_shifts_per_thread,
+    dsize_t max_left_rows
+);
+
 }

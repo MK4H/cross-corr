@@ -152,8 +152,10 @@ __device__ void warp_shuffle_impl(
                 // Shuffle does modulo srcLane automatically
                 // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
                 //  making it behave as one continuous buffer
-                thread_left_bottom = warp.shfl(warp.thread_rank() != 0 ? thread_left_bottom : thread_left_top,
-                                               warp.thread_rank() + 1);
+                thread_left_bottom = warp.shfl(
+                    warp.thread_rank() != 0 ? thread_left_bottom : thread_left_top,
+                    warp.thread_rank() + 1
+                );
                 thread_left_top = warp.shfl_down(thread_left_top, 1);
             }
         }

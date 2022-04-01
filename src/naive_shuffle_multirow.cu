@@ -156,19 +156,16 @@ __device__ void compute_row_group(
                 // Broadcast
                 auto right_val = warp.shfl(thread_right[r], i);
 
-                // No need to mask, if either values is out of bounds the value will be 0
-                // Invert the order with respect to r, as
-                //  we need the shift 0, which is the min shift
-                //  at last place, so we can pass it first alone
-                //  then with min_shift + 1, then with min_shift + 2 etc.
                 sum[r] += thread_left_bottom * right_val;
             }
 
             // Shuffle does modulo srcLane automatically
             // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
             //  making it behave as one continuous buffer
-            thread_left_bottom = warp.shfl(warp.thread_rank() != 0 ? thread_left_bottom : thread_left_top,
-                                           warp.thread_rank() + 1);
+            thread_left_bottom = warp.shfl(
+                warp.thread_rank() != 0 ? thread_left_bottom : thread_left_top,
+                warp.thread_rank() + 1
+            );
             thread_left_top = warp.shfl_down(thread_left_top, 1);
         }
     }
