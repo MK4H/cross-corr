@@ -348,6 +348,7 @@ std::unordered_map<std::string, std::function<int(
         {"nai_shift_per_warp_work_distribution_one_to_one", run_measurement<naive_shift_per_warp_work_distribution_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_shared_mem_rows_one_to_one", run_measurement<naive_shift_per_warp_shared_mem_rows_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_shared_mem_rows_one_to_many", run_measurement<naive_shift_per_warp_shared_mem_rows_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_shift_per_block_one_to_one", run_measurement<naive_shift_per_block_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"fft_orig_one_to_one", run_measurement<fft_original_alg_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"fft_reduced_transfer_one_to_one", run_measurement<fft_reduced_transfer_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"fft_orig_one_to_many", run_measurement<fft_original_alg_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},

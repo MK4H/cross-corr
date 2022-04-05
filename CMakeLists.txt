@@ -47,6 +47,7 @@ set(CUDA_SOURCES
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle_multirow.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle_multileft.cu
         ${CMAKE_SOURCE_DIR}/src/naive_warp_per_shift.cu
+        ${CMAKE_SOURCE_DIR}/src/naive_block_per_shift.cu
         ${CMAKE_SOURCE_DIR}/src/scatter.cu
 )
 

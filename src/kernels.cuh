@@ -183,4 +183,14 @@ void run_ccn_multileft_shuffle(
     dsize_t max_left_rows
 );
 
+template<typename T, typename RES>
+void run_ccn_shift_per_block(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t cuda_block_size
+);
+
 }
