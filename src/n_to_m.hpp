@@ -320,7 +320,7 @@ public:
         :n_to_m<T, BENCH_TYPE, ALLOC>(false, 0, min_measured_time), refs_(), targets_(), results_()
     {
         block_y_size_ = args.value("block_y_size", 8);
-        left_matrices_per_thread_ = args.value("right_matrices_per_thread", 2);
+        left_matrices_per_thread_ = args.value("left_matrices_per_thread", 2);
         right_matrices_per_thread_ = args.value("right_matrices_per_thread", 2);
         rows_per_thread_ = args.value("rows_per_thread", 10);
         // TODO: Add default work distribution

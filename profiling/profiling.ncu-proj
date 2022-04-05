@@ -2,16 +2,39 @@
     "extension": "ncu-proj",
     "files": [
         {
-            "path": "basic.ncu-rep"
+            "is_open": true,
+            "path": "nai_multileft_shuffle_128.ncu-rep"
         },
         {
-            "path": "full.ncu-rep"
+            "path": "nai_multileft_shuffle_256.ncu-rep"
         },
         {
-            "path": "nai_orig_64.ncu-rep"
+            "path": "nai_multileft_shuffle_512.ncu-rep"
         },
         {
-            "path": "nai_shuffle_64.ncu-rep"
+            "path": "nai_multileft_shuffle_64.ncu-rep"
+        },
+        {
+            "path": "nai_multileft_shuffle_one_to_one_128.ncu-rep"
+        },
+        {
+            "path": "nai_multileft_shuffle_one_to_one_256.ncu-rep"
+        },
+        {
+            "path": "nai_multileft_shuffle_one_to_one_512.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_multirow_shuffle_128.ncu-rep"
+        },
+        {
+            "path": "nai_multirow_shuffle_256.ncu-rep"
+        },
+        {
+            "path": "nai_multirow_shuffle_512.ncu-rep"
+        },
+        {
+            "path": "nai_multirow_shuffle_64.ncu-rep"
         },
         {
             "path": "nai_orig_128.ncu-rep"
@@ -23,16 +46,7 @@
             "path": "nai_orig_512.ncu-rep"
         },
         {
-            "path": "nai_warp_shuffle_128.ncu-rep"
-        },
-        {
-            "path": "nai_warp_shuffle_256.ncu-rep"
-        },
-        {
-            "path": "nai_warp_shuffle_512.ncu-rep"
-        },
-        {
-            "path": "nai_shift_per_warp_64.ncu-rep"
+            "path": "nai_orig_64.ncu-rep"
         },
         {
             "path": "nai_shift_per_warp_128.ncu-rep"
@@ -44,24 +58,52 @@
             "path": "nai_shift_per_warp_512.ncu-rep"
         },
         {
-            "path": "nai_shift_per_warp_simple_indexing_64.ncu-rep"
+            "path": "nai_shift_per_warp_64.ncu-rep"
         },
         {
-            "path": "nai_shift_per_warp_simple_indexing_128.ncu-rep"
+            "path": "nai_shift_per_warp_shared_mem_rows_128.ncu-rep"
         },
         {
-            "path": "nai_shift_per_warp_simple_indexing_256.ncu-rep"
+            "path": "nai_shift_per_warp_shared_mem_rows_256.ncu-rep"
         },
         {
-            "path": "nai_shift_per_warp_simple_indexing_512.ncu-rep"
+            "path": "nai_shift_per_warp_shared_mem_rows_512.ncu-rep"
+        },
+        {
+            "path": "nai_shift_per_warp_shared_mem_rows_64.ncu-rep"
         },
         {
             "is_open": true,
-            "path": "nai_shift_per_warp_work_distribution_64.ncu-rep"
+            "path": "nai_warp_shuffle_128.ncu-rep"
+        },
+        {
+            "path": "nai_warp_shuffle_256.ncu-rep"
+        },
+        {
+            "path": "nai_warp_shuffle_512.ncu-rep"
+        },
+        {
+            "path": "nai_warp_shuffle_64.ncu-rep"
+        },
+        {
+            "path": "nai_warp_shuffle_work_distribution_128.ncu-rep"
+        },
+        {
+            "path": "nai_warp_shuffle_work_distribution_256.ncu-rep"
+        },
+        {
+            "path": "nai_warp_shuffle_work_distribution_512.ncu-rep"
+        },
+        {
+            "path": "nai_warp_shuffle_work_distribution_64.ncu-rep"
         },
         {
             "is_open": true,
-            "path": "nai_warp_shuffle_work_distribution_one_to_many.ncu-rep"
+            "path": "nai_shuffle_specialized_n_to_m.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_shuffle_specialized_n_to_m_orig.ncu-rep"
         }
     ],
     "launcher": {

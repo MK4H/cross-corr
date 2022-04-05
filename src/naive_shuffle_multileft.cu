@@ -108,6 +108,7 @@ __device__ void compute_row_group(
 
     // Preload the first values from left matrix
     T thread_left_bottom[NUM_LEFT_ROWS];
+    #pragma unroll
     for (dsize_t l = 0; l < NUM_LEFT_ROWS; ++l) {
         thread_left_bottom[l] = load_with_bounds_check(
             first_left_row + l * args.matrix_size.x,
@@ -118,6 +119,7 @@ __device__ void compute_row_group(
 
 
     T sum[NUM_SHIFTS];
+    #pragma unroll
     for (dsize_t s = 0; s < NUM_SHIFTS; ++s) {
         sum[s] = 0;
     }
@@ -146,6 +148,7 @@ __device__ void compute_row_group(
         constexpr dsize_t NUM_RIGHT_ROWS = NUM_SHIFTS + NUM_LEFT_ROWS - 1;
         // Load values from num_rights right matrices
         T thread_right[NUM_RIGHT_ROWS];
+        #pragma unroll
         for (dsize_t r = 0; r < NUM_RIGHT_ROWS; ++r) {
             // TODO: Either do bounds check or limit the for loop below
             thread_right[r] = load_with_bounds_check(
@@ -157,6 +160,7 @@ __device__ void compute_row_group(
 
 
         T thread_left_top[NUM_LEFT_ROWS];
+        #pragma unroll
         for (dsize_t l = 0; l < NUM_LEFT_ROWS; ++l) {
             thread_left_top[l] = load_with_bounds_check(
                 first_left_row + l * args.matrix_size.x,
@@ -165,12 +169,14 @@ __device__ void compute_row_group(
             );
         }
 
+        // TODO: Maybe pragma unroll?
         for (dsize_t i = 0; i < warp.size(); ++i) {
-
+            #pragma unroll
             for (dsize_t r = 0; r < NUM_RIGHT_ROWS; ++r) {
                 // Broadcast
                 auto right_val = warp.shfl(thread_right[r], i);
 
+                #pragma unroll
                 for (dsize_t l = 0; l < NUM_LEFT_ROWS; ++l) {
                     // Some combinations are not valid, as described by the NUM_RIGHT_ROWS
                     // variable comment.
@@ -184,6 +190,7 @@ __device__ void compute_row_group(
                 }
             }
 
+            #pragma unroll
             for (dsize_t l = 0; l < NUM_LEFT_ROWS; ++l) {
                 // Shuffle does modulo srcLane automatically
                 // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
@@ -197,6 +204,7 @@ __device__ void compute_row_group(
         }
     }
 
+    #pragma unroll
     for (dsize_t s = 0; s < NUM_SHIFTS; ++s) {
         // Res contains first the results of min_shift for all threads of the block,
         // then results of min_shift + 1 for all threads of the block,
@@ -336,6 +344,7 @@ __device__ void multileft_shuffle_impl(
 
     // TODO: Maybe just check the x axis, Y axis should be filtered out by 0 NUM_RIGHT_ROWS
     if (args.output_pos.x < args.search_size.x && args.output_pos.y < args.search_size.y) {
+        #pragma unroll
         for (dsize_t s = 0; s < NUM_THREAD_SHIFTS; ++s) {
             auto output_offset = first_output_offset + s * args.search_size.x;
             auto val = res[s * ctb.size() + ctb.thread_rank()];
@@ -503,7 +512,7 @@ __global__ void ccn_multileft_shuffle(
     );
 }
 
-constexpr dsize_t left_rows_limit = 8;
+constexpr dsize_t left_rows_limit = 4;
 template<dsize_t MAX_LEFT_ROWS, typename T, typename RES>
 __host__ void ccn_multileft_shuffle_dispatch(
     const T* __restrict__ left,

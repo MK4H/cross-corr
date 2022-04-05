@@ -95,6 +95,7 @@ __device__ void warp_shuffle_impl(
 ) {
     // Compute the given shift for num_rights right matrices
     RES sum[NUM_LEFTS * NUM_RIGHTS];
+    #pragma unroll
     for (dsize_t i = 0; i < NUM_LEFTS * NUM_RIGHTS; ++i) {
         sum[i] = 0;
     }
@@ -111,6 +112,7 @@ __device__ void warp_shuffle_impl(
 
         // Preload the first values from left matrix
         T thread_left_bottom[NUM_LEFTS];
+        #pragma unroll
         for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
             thread_left_bottom[l] = load_with_bounds_check(
                 left_row + l * args.matrix_size.area(),
@@ -140,12 +142,14 @@ __device__ void warp_shuffle_impl(
 
             // Load values from num_rights right matrices
             T thread_right[NUM_RIGHTS];
+            #pragma unroll
             for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
                 // TODO: Either do bounds check or limit the for loop below
                 thread_right[r] = load_with_bounds_check(right_row + r * args.matrix_size.area(), right_idx, args.matrix_size.x);
             }
 
             T thread_left_top[NUM_LEFTS];
+            #pragma unroll
             for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
                 thread_left_top[l] = load_with_bounds_check(
                     left_row + l * args.matrix_size.area(),
@@ -154,17 +158,21 @@ __device__ void warp_shuffle_impl(
                 );
             }
 
+            // TODO: Maybe pragma unroll?
             for (dsize_t i = 0; i < warp.size(); ++i) {
+                #pragma unroll
                 for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
                     // Broadcast
                     auto right_val = warp.shfl(thread_right[r], i);
 
+                    #pragma unroll
                     for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
                         // No need to mask, if either values is out of bounds the value will be 0
                         sum[l * NUM_RIGHTS + r] += thread_left_bottom[l] * right_val;
                     }
                 }
 
+                #pragma unroll
                 for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
                     // Shuffle does modulo srcLane automatically
                     // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
@@ -181,7 +189,9 @@ __device__ void warp_shuffle_impl(
 
     if (args.output_pos.x < args.search_size.x && args.output_pos.y < args.search_size.y) {
         auto output_offset = args.output_pos.linear_idx(args.search_size.x);
+        #pragma unroll
         for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
+            #pragma unroll
             for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
                 T* matrix = args.out + (l * args.num_right_matrices + r) * args.search_size.area();
                 if (ATOMIC) {
@@ -194,8 +204,8 @@ __device__ void warp_shuffle_impl(
     }
 }
 
-constexpr dsize_t max_num_left_matrices = 8;
-constexpr dsize_t max_num_right_matrices = 8;
+constexpr dsize_t max_num_left_matrices = 2;
+constexpr dsize_t max_num_right_matrices = 2;
 
 // TODO: Is this correct?
 template<dsize_t NUM_LEFTS, dsize_t NUM_RIGHTS, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
