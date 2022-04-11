@@ -17,13 +17,14 @@ class BenchmarkScript:
             alg_type: str,
             data_type: str,
             inner_iterations: int,
+            min_measure_seconds: float,
             left_input_path: Path,
             right_input_path: Path,
             output_data_dir: Optional[Path],
             timings_path: Path,
             verbose: bool
     ):
-        command = [self.script_path, alg_type, data_type, str(inner_iterations), left_input_path, right_input_path,
+        command = [self.script_path, alg_type, data_type, str(inner_iterations), str(min_measure_seconds), left_input_path, right_input_path,
             timings_path]
 
         if output_data_dir is not None:

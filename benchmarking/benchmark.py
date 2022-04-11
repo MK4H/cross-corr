@@ -232,7 +232,10 @@ class ExternalRun(Run):
             data
     ) -> List["ExternalRun"]:
         alg_type = data["alg_type"]
-        name = data["name"] if "name" in data else f"{idx}_{alg_type}"
+        base_name = data["name"] if "name" in data else f"{idx}_{alg_type}"
+        # Underscores to match the naming scheme of Internal runs
+        #   and in the future to possibly hold used arguments as in Internal runs
+        name = f"{base_name}____"
         script_path = Path(data["path"])
 
         script_path = script_path if script_path.is_absolute() else base_dir_path / script_path
@@ -282,6 +285,7 @@ class ExternalRun(Run):
                 self.algorithm_type,
                 data_type,
                 inner_iterations,
+                min_measure_seconds,
                 left_input,
                 right_input,
                 out_data_path,

@@ -1,6 +1,8 @@
 import argparse
+import itertools
 import time
 import numpy as np
+import math
 
 from typing import Tuple, Any, Optional
 
@@ -11,10 +13,12 @@ from matrix import MatrixArray
 
 
 class Timings:
-    def __init__(self):
+    def __init__(self, adaptive_limit_sec: float):
         self.labels = ["Load", "Computation"]
         self.values = [0] * len(self.labels)
+        self.iterations = [0] * len(self.labels)
         self.starts = [0] * len(self.labels)
+        self.adaptive_limit_sec = adaptive_limit_sec
 
     def start(self, label: int):
         self.starts[label] = time.perf_counter_ns()
@@ -23,16 +27,39 @@ class Timings:
         now = time.perf_counter_ns()
         self.record(label, now - self.starts[label])
 
-    def record(self, label: int, value: int):
-        self.values[label] = value
+    def adaptive_measure(self, label: int, iterations: int) -> int:
+        now = time.perf_counter_ns()
+        total_time_ns = now - self.starts[label]
+        self.record(label, total_time_ns, iterations)
+
+        total_time_sec = total_time_ns / 1e9
+        if total_time_sec >= self.adaptive_limit_sec:
+            return 0
+
+        ratio = self.adaptive_limit_sec / total_time_sec
+        next_iterations = math.ceil(iterations * max(min(ratio * 1.5, 100), 1.5))
+        return next_iterations
+
+    def record(self, label: int, value: int, iterations: int = 1):
+        self.values[label] = value / iterations
+        self.iterations[label] = iterations
 
     def save_csv(self, path: Path):
         append = path.exists()
+        # Zip and flatten
+        values = [val for tup in zip(self.values, self.iterations) for val in tup]
+
+        # Add iteration label for each label
+        labels = [[label, f"{label}_iterations"] for label in self.labels]
+
+        # Flatten
+        labels = [label for pair in labels for label in pair]
         with path.open("a" if append else "w") as f:
-            np.savetxt(f, [self.values], delimiter=",", fmt="%u", header="" if append else ",".join(self.labels), comments="")
+            np.savetxt(f, [values], delimiter=",", fmt="%u", header="" if append else ",".join(labels), comments="")
 
     def reset(self):
         self.values = [0] * len(self.labels)
+        self.iterations = [0] * len(self.labels)
         self.starts = [0] * len(self.labels)
 
 
@@ -130,6 +157,7 @@ def run_cross_corr(
         alg: str,
         data_type: Any,
         iterations: int,
+        adaptive_limit: float,
         left_input: Path,
         right_input: Path,
         output: Optional[Path],
@@ -145,7 +173,7 @@ def run_cross_corr(
     if alg not in algs:
         alg_names = ", ".join(algs.keys())
         raise ValueError(f"Invalid algorithm {alg}, expected one of {alg_names}")
-    timings = Timings()
+    timings = Timings(adaptive_limit)
 
     timings.start(0)
     left = MatrixArray.load_from_csv(left_input, data_type)
@@ -153,9 +181,12 @@ def run_cross_corr(
     timings.measure(0)
 
     for iteration in range(iterations):
-        timings.start(1)
-        result = algs[alg](left, right)
-        timings.measure(1)
+        measure_iters = 1
+        while measure_iters > 0:
+            timings.start(1)
+            for i in range(measure_iters):
+                result = algs[alg](left, right)
+            measure_iters = timings.adaptive_measure(1, measure_iters)
 
         if output is not None:
             output = output.with_name(output.stem + f"_{iteration}" + output.suffix) if iterations > 1 else output
@@ -178,6 +209,7 @@ def _run_cross_corr(args: argparse.Namespace):
         args.algorithm,
         data_type,
         args.iterations,
+        args.adaptive_limit,
         args.left_input_path,
         args.right_input_path,
         args.output_path,
@@ -201,6 +233,10 @@ def arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-t", "--timings_path",
                         type=Path,
                         help=f"Path to store time measurements")
+    parser.add_argument("-l", "--adaptive_limit",
+                        type=float,
+                        default=1,
+                        help=f"Minimum time measured part of code must run to consider the measurement statistically relevant, in seconds")
     parser.add_argument("algorithm",
                         type=str,
                         help="Algorithms to run")
