@@ -1,0 +1,74 @@
+benchmark:
+  name: WarpShuffleOptimalizations
+  groups:
+    - name: multirow
+      config:
+        sizes:
+          - "16x16x1x1"
+          - "32x32x1x1"
+          - "64x64x1x1"
+          - "128x128x1x1"
+          - "256x256x1x1"
+          - "512x512x1x1"
+        data_type: single
+        outer_iterations: 2
+        inner_iterations: 10
+        min_measure_seconds: 1
+        validate: false
+        keep_output: false
+      runs:
+        - name: no_optimalization
+          algorithm: nai_warp_shuffle_one_to_one
+          args:
+            rows_per_block: 16
+            right_matrices_per_thread: 1
+        - name: multirow
+          algorithm: nai_multirow_shuffle_one_to_one
+          args:
+            shifts_per_block: 32
+            right_rows_per_thread: [2,4,6,8]
+
+    - name: multiple_rights
+      config:
+        sizes:
+          - "16x16x1x2"
+          - "32x32x1x2"
+          - "64x64x1x2"
+          - "128x128x1x2"
+          - "256x256x1x2"
+          - "512x512x1x2"
+          - "16x16x1x4"
+          - "32x32x1x4"
+          - "64x64x1x4"
+          - "128x128x1x4"
+          - "256x256x1x4"
+          - "512x512x1x4"
+          - "16x16x1x8"
+          - "32x32x1x8"
+          - "64x64x1x8"
+          - "128x128x1x8"
+          - "256x256x1x8"
+          - "512x512x1x8"
+          - "16x16x1x16"
+          - "32x32x1x16"
+          - "64x64x1x16"
+          - "128x128x1x16"
+          - "256x256x1x16"
+          - "512x512x1x16"
+        data_type: single
+        outer_iterations: 2
+        inner_iterations: 10
+        min_measure_seconds: 1
+        validate: false
+        keep_output: false
+      runs:
+        - name: no_optimalization
+          algorithm: nai_warp_shuffle_one_to_many
+          args:
+            shifts_per_block: 16
+            right_matrices_per_thread: 1
+        - name: multiple_rights
+          algorithm: nai_warp_shuffle_one_to_many
+          args:
+            shifts_per_block: 16
+            right_matrices_per_thread: [2,4,6,8]

@@ -2,7 +2,6 @@
     "extension": "ncu-proj",
     "files": [
         {
-            "is_open": true,
             "path": "nai_multileft_shuffle_128.ncu-rep"
         },
         {
@@ -24,7 +23,6 @@
             "path": "nai_multileft_shuffle_one_to_one_512.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_multirow_shuffle_128.ncu-rep"
         },
         {
@@ -73,7 +71,6 @@
             "path": "nai_shift_per_warp_shared_mem_rows_64.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_warp_shuffle_128.ncu-rep"
         },
         {
@@ -98,12 +95,45 @@
             "path": "nai_warp_shuffle_work_distribution_64.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_shuffle_specialized_n_to_m.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_shuffle_specialized_n_to_m_orig.ncu-rep"
+        },
+        {
+            "path": "nai_shift_per_block_64.ncu-rep"
+        },
+        {
+            "path": "nai_shift_per_block_128.ncu-rep"
+        },
+        {
+            "path": "nai_shift_per_block_256.ncu-rep"
+        },
+        {
+            "path": "nai_shift_per_block_512.ncu-rep"
+        },
+        {
+            "group_id": "{34b3f53e-fa0e-4dc1-bb9e-fa5dcd19ff39}",
+            "path": "nai_warp_shuffle_one_to_one.ncu-rep"
+        },
+        {
+            "group_id": "{34b3f53e-fa0e-4dc1-bb9e-fa5dcd19ff39}",
+            "path": "nai_warp_shuffle_one_to_many_noopt.ncu-rep"
+        },
+        {
+            "group_id": "{34b3f53e-fa0e-4dc1-bb9e-fa5dcd19ff39}",
+            "path": "nai_multirow_shuffle_one_to_one.ncu-rep"
+        },
+        {
+            "group_id": "{34b3f53e-fa0e-4dc1-bb9e-fa5dcd19ff39}",
+            "is_open": true,
+            "path": "nai_warp_shuffle_multiright.ncu-rep"
+        }
+    ],
+    "groups": [
+        {
+            "group_id": "{34b3f53e-fa0e-4dc1-bb9e-fa5dcd19ff39}",
+            "group_name": "text"
         }
     ],
     "launcher": {

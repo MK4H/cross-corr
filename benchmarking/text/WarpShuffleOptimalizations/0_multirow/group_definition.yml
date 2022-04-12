@@ -1,0 +1,45 @@
+config:
+  data_type: single
+  inner_iterations: 10
+  keep_output: false
+  outer_iterations: 2
+  sizes:
+  - {cols: 16, left_matrices: 1, right_matrices: 1, rows: 16}
+  - {cols: 32, left_matrices: 1, right_matrices: 1, rows: 32}
+  - {cols: 64, left_matrices: 1, right_matrices: 1, rows: 64}
+  - {cols: 128, left_matrices: 1, right_matrices: 1, rows: 128}
+  - {cols: 256, left_matrices: 1, right_matrices: 1, rows: 256}
+  - {cols: 512, left_matrices: 1, right_matrices: 1, rows: 512}
+  validate: false
+name: multirow
+runs:
+- alg_type: one_to_one
+  algorithm: nai_warp_shuffle_one_to_one
+  args: {right_matrices_per_thread: 1, rows_per_block: 16}
+  executable: /home/karel/skola/diplomka/crosscorr/code/measurements/build/cross
+  idx: 0
+  name: no_optimalization____
+- alg_type: one_to_one
+  algorithm: nai_multirow_shuffle_one_to_one
+  args: {right_rows_per_thread: 2, shifts_per_block: 32}
+  executable: /home/karel/skola/diplomka/crosscorr/code/measurements/build/cross
+  idx: 1
+  name: multirow__2__
+- alg_type: one_to_one
+  algorithm: nai_multirow_shuffle_one_to_one
+  args: {right_rows_per_thread: 4, shifts_per_block: 32}
+  executable: /home/karel/skola/diplomka/crosscorr/code/measurements/build/cross
+  idx: 1
+  name: multirow__4__
+- alg_type: one_to_one
+  algorithm: nai_multirow_shuffle_one_to_one
+  args: {right_rows_per_thread: 6, shifts_per_block: 32}
+  executable: /home/karel/skola/diplomka/crosscorr/code/measurements/build/cross
+  idx: 1
+  name: multirow__6__
+- alg_type: one_to_one
+  algorithm: nai_multirow_shuffle_one_to_one
+  args: {right_rows_per_thread: 8, shifts_per_block: 32}
+  executable: /home/karel/skola/diplomka/crosscorr/code/measurements/build/cross
+  idx: 1
+  name: multirow__8__
