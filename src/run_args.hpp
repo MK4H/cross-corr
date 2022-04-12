@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <chrono>
 #include <unordered_set>
+#include <optional>
 
 #include <boost/program_options.hpp>
 
