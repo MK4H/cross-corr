@@ -177,38 +177,10 @@ public:
         dsize_t warp_start = warp.meta_group_rank() * warp_load_size;
         dsize_t warp_end = min(warp_start + warp_load_size, copy_size);
 
-//        if (ctb.group_index().x == 1 && ctb.group_index().y == 2 && warp.thread_rank() == 0) {
-//            printf(
-//                "Block: [%u, %u], Warp: %u, Chunk size: %u, Num chunks: %u, Chunk stride: %u, Copy size: %u, Warp load size: %u, Warp start: %u, Warp end: %u\n",
-//                ctb.group_index().x,
-//                ctb.group_index().y,
-//                warp.meta_group_rank(),
-//                chunk_size,
-//                num_chunks,
-//                chunk_stride,
-//                copy_size,
-//                warp_load_size,
-//                warp_start,
-//                warp_end
-//            );
-//        }
-
         for (size_type i = warp_start + warp.thread_rank(); i < warp_end; i += warp.size()) {
             auto chunk_idx = i / chunk_size;
             auto chunk_offset = i % chunk_size;
             auto src_idx =  (chunk_size + chunk_stride) * chunk_idx + chunk_offset;
-
-//            if (ctb.group_index().x == 1 && ctb.group_index().y == 2 && num_chunks == 8) {
-//                printf(
-//                    "Block: [%u, %u], Warp: %u, i: %u, Src idx: %u, Src value: %f\n",
-//                    ctb.group_index().x,
-//                    ctb.group_index().y,
-//                    warp.meta_group_rank(),
-//                    i,
-//                    src_idx,
-//                    src[src_idx]
-//                );
-//            }
 
             data[i] = src[src_idx];
         }
