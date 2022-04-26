@@ -52,6 +52,7 @@ class Run(ABC):
             left_input: Path,
             right_input: Path,
             data_type: str,
+            benchmark_type: str,
             outer_iterations: int,
             inner_iterations: int,
             min_measure_seconds: float,
@@ -89,14 +90,12 @@ class InternalRun(Run):
             name: str,
             exe: executable.Executable,
             algorithm: str,
-            benchmark_type: str,
             args: Dict[Any, Any],
             args_file_path: Path,
     ):
         super().__init__(idx, name, InternalRun.get_algorithm_type(algorithm))
         self.exe = exe
         self.algorithm = algorithm
-        self.benchmark_type = benchmark_type
         self.args = args
         self.args_file_path = args_file_path
 
@@ -112,9 +111,8 @@ class InternalRun(Run):
     @classmethod
     def from_dict(cls, idx: int, exe: executable.Executable, base_dir_path: Path, input_data_dir: Path, data) -> List["Run"]:
         algorithm = data["algorithm"]
-        base_name = data["name"] if "name" in data else f"{idx}_{algorithm}"
-        benchmark_type = data["benchmark_type"] if "benchmark_type" in data else "Compute"
-        args = data["args"] if "args" in data else {}
+        base_name = data.get("name", f"{idx}_{algorithm}")
+        args = data.get("args", {})
 
         generate = {}
         singles = {}
@@ -132,7 +130,6 @@ class InternalRun(Run):
                 f"{base_name}____",
                 exe,
                 algorithm,
-                benchmark_type,
                 singles,
                 input_data_dir / f"{idx}-{base_name}-args.json"
             )]
@@ -150,7 +147,6 @@ class InternalRun(Run):
                 name,
                 exe,
                 algorithm,
-                benchmark_type,
                 run_args,
                 input_data_dir / f"{idx}-{name}-args.json",
             ))
@@ -175,6 +171,7 @@ class InternalRun(Run):
             left_input: Path,
             right_input: Path,
             data_type: str,
+            benchmark_type: str,
             outer_iterations: int,
             inner_iterations: int,
             min_measure_seconds: float,
@@ -194,7 +191,7 @@ class InternalRun(Run):
             self.exe.run_benchmark(
                 self.algorithm,
                 data_type,
-                self.benchmark_type,
+                benchmark_type,
                 inner_iterations,
                 min_measure_seconds,
                 self.args_file_path,
@@ -232,7 +229,7 @@ class ExternalRun(Run):
             data
     ) -> List["ExternalRun"]:
         alg_type = data["alg_type"]
-        base_name = data["name"] if "name" in data else f"{idx}_{alg_type}"
+        base_name = data.get("name", f"{idx}_{alg_type}")
         # Underscores to match the naming scheme of Internal runs
         #   and in the future to possibly hold used arguments as in Internal runs
         name = f"{base_name}____"
@@ -260,6 +257,7 @@ class ExternalRun(Run):
             left_input: Path,
             right_input: Path,
             data_type: str,
+            benchmark_type: str,
             outer_iterations: int,
             inner_iterations: int,
             min_measure_seconds: float,
@@ -317,6 +315,7 @@ class GlobalConfig:
             output_path: Path,
             sizes: Optional[input_size.InputSize],
             data_type: str,
+            benchmark_type: str,
             outer_iterations: int,
             inner_iterations: int,
             min_measure_seconds: float,
@@ -339,6 +338,7 @@ class GlobalConfig:
         self.output_path = output_path
         self.sizes = sizes
         self.data_type = data_type
+        self.benchmark_type = benchmark_type
         self.outer_iterations = outer_iterations
         self.inner_iterations = inner_iterations
         self.min_measure_seconds = min_measure_seconds
@@ -359,12 +359,13 @@ class GlobalConfig:
             output_path,
             [input_size.InputSize.from_dict_or_string(in_size) for in_size in
              data["sizes"]] if "sizes" in data else None,
-            data["data_type"] if "data_type" in data else "single",
-            int(data["outer_iterations"]) if "outer_iterations" in data else 1,
-            int(data["inner_iterations"]) if "inner_iterations" in data else 1,
-            float(data["min_measure_seconds"]) if "min_measure_seconds" in data else 1.0,
-            bool(data["validate"]) if "validate" in data else False,
-            bool(data["keep_output"]) if "keep_output" in data else False
+            data.get("data_type", "single"),
+            data.get("benchmark_type", "Compute"),
+            int(data.get("outer_iterations", 1)),
+            int(data.get("inner_iterations", 1)),
+            float(data.get("min_measure_seconds", 1.0)),
+            bool(data.get("validate", False)),
+            bool(data.get("keep_output", False))
         )
 
 
@@ -500,8 +501,11 @@ class InputSizeSubgroup:
             out_data_dir, measurement_results_path, measurement_output_stats_path = \
                 self.get_run_result_paths(run)
 
-            skip = (measurement_results_path.exists() and
-                    (self.validation_data_path is None or measurement_output_stats_path.exists()))
+            measure = self.group.benchmark_type.lower() != "none"
+            validate = self.validation_data_path is not None
+
+            skip = ((measurement_results_path.exists() or not measure) and
+                    (measurement_output_stats_path.exists() or not validate))
 
             self.logger.log_step(f"Benchmarking {run.name} for {self.input_size}", skip=skip)
 
@@ -511,6 +515,7 @@ class InputSizeSubgroup:
                         self.left_path,
                         self.right_path,
                         self.group.data_type,
+                        self.group.benchmark_type,
                         self.group.outer_iterations,
                         self.group.inner_iterations,
                         self.group.min_measure_seconds,
@@ -522,12 +527,13 @@ class InputSizeSubgroup:
                         self.logger.verbose
                     )
 
-                    self.group_execution.tmp_results_path.rename(measurement_results_path)
-                    if self.validation_data_path is not None:
+                    if measure:
+                        self.group_execution.tmp_results_path.rename(measurement_results_path)
+                    if validate:
                         self.group_execution.tmp_output_stats_path.rename(measurement_output_stats_path)
-
-                self.logger.log(f"Measured times: {str(measurement_results_path.absolute())}")
-                if self.validation_data_path is not None:
+                if measure:
+                    self.logger.log(f"Measured times: {str(measurement_results_path.absolute())}")
+                if validate:
                     self.logger.log(f"Result data stats: {str(measurement_output_stats_path.absolute())}")
             except execution_error.ExecutionError as e:
                 self.logger.log_failure(run, e, self.index, self.input_size, self.left_path, self.right_path)
@@ -594,6 +600,7 @@ class Group:
             alg_type: str,
             sizes: List[input_size.InputSize],
             data_type: str,
+            benchmark_type: str,
             result_dir: Path,
             input_data_dir: Path,
             output_data_dir: Path,
@@ -608,6 +615,7 @@ class Group:
         self.alg_type = alg_type
         self.sizes = sizes
         self.data_type = data_type
+        self.benchmark_type = benchmark_type
         self.result_dir = result_dir
         self.input_data_dir = input_data_dir
         self.output_data_dir = output_data_dir
@@ -621,25 +629,25 @@ class Group:
     def _config_from_dict(
             data,
             global_config: GlobalConfig
-    ) -> Tuple[Optional[List[input_size.InputSize]], str, int, int, float, bool, bool]:
+    ) -> Tuple[Optional[List[input_size.InputSize]], str, str, int, int, float, bool, bool]:
 
         data = data if data is not None else {}
 
         sizes = [input_size.InputSize.from_dict_or_string(in_size) for in_size in data["sizes"]] if "sizes" in data else global_config.sizes
-        data_type = data["data_type"] if "data_type" in data else global_config.data_type
-        outer_iterations = int(data["outer_iterations"]) if "outer_iterations" in data else global_config.outer_iterations
-        inner_iterations = int(
-            data["inner_iterations"]) if "inner_iterations" in data else global_config.inner_iterations
-        min_measure_seconds = float(data["min_measure_seconds"]) if "min_measure_seconds" in data else global_config.min_measure_seconds
-        validate = bool(data["validate"]) if "validate" in data else global_config.validate
-        keep = bool(data["keep_output"]) if "keep_output" in data else global_config.keep_output
+        data_type = data.get("data_type", global_config.data_type)
+        benchmark_type = data.get("benchmark_type", global_config.benchmark_type)
+        outer_iterations = int(data.get("outer_iterations", global_config.outer_iterations))
+        inner_iterations = int(data.get("inner_iterations", global_config.inner_iterations))
+        min_measure_seconds = float(data.get("min_measure_seconds", global_config.min_measure_seconds))
+        validate = bool(data.get("validate", global_config.validate))
+        keep = bool(data.get("keep_output", global_config.keep_output))
 
-        return sizes, data_type, outer_iterations, inner_iterations, min_measure_seconds, validate, keep
+        return sizes, data_type, benchmark_type, outer_iterations, inner_iterations, min_measure_seconds, validate, keep
 
     @classmethod
     def from_dict(cls, data, global_config: GlobalConfig, index: int, exe: executable.Executable):
-        name = str(data['name']) if "name" in data else str(index)
-        sizes, data_type, outer_iterations, inner_iterations, min_measure_seconds, validate, keep_output = cls._config_from_dict(
+        name = str(data.get("name", index))
+        sizes, data_type, benchmark_type, outer_iterations, inner_iterations, min_measure_seconds, validate, keep_output = cls._config_from_dict(
             data.get("config", None),
             global_config
         )
@@ -690,6 +698,7 @@ class Group:
             alg_type,
             sizes,
             data_type,
+            benchmark_type,
             group_dir,
             input_data_dir,
             output_data_dir,
@@ -705,6 +714,7 @@ class Group:
             "name": self.name,
             "config": {
                 "data_type": self.data_type,
+                "benchmark_type": self.benchmark_type,
                 "outer_iterations": self.outer_iterations,
                 "inner_iterations": self.inner_iterations,
                 "sizes": [size.to_dict() for size in self.sizes],

@@ -17,4 +17,4 @@ IN1="$(realpath -e "$3")"
 IN2="$(realpath -e "$4")"
 OUT="$(realpath "$5")"
 
-matlab -nodisplay -nosplash -nodesktop -batch "alg = '${ALG}'; data_type = '${DATA_TYPE}'; iterations = 1; in1_path = '${IN1}'; in2_path = '${IN2}'; out_path = '${OUT}'; run('${DIR}/compute_valid_results.m'); exit;"
+matlab -nodisplay -nosplash -nodesktop -batch "alg = '${ALG}'; data_type = '${DATA_TYPE}'; iterations = 1; adaptive_limit = 0; in1_path = '${IN1}'; in2_path = '${IN2}'; out_path = '${OUT}'; run('${DIR}/compute_valid_results.m'); exit;"

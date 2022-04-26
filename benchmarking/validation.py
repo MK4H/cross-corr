@@ -67,15 +67,18 @@ def validate_result_stats(
     files.extend(itertools.chain.from_iterable(group_files))
 
     for file in files:
-        data = pd.read_csv(
-            file
-        )
+        try:
+            data = pd.read_csv(
+                file
+            )
 
-        max = data["Max"].max()
-        if abs(max) > limit:
-            print(f"FAIL[{str(file.absolute())}]: Value {max} out of bounds (limit {limit})")
-        elif confirm:
-            print(f"OK[{str(file.absolute())}]: Value {max}")
+            max = data["Max"].max()
+            if abs(max) > limit:
+                print(f"FAIL[{str(file.absolute())}]: Value {max} out of bounds (limit {limit})")
+            elif confirm:
+                print(f"OK[{str(file.absolute())}]: Value {max}")
+        except Exception as e:
+            print(f"ERROR[{str(file.absolute())}]: {str(e)}")
 
 
 def _validate_from_inputs(args: argparse.Namespace):
