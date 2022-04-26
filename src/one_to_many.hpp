@@ -395,6 +395,111 @@ std::vector<std::string> naive_warp_shuffle_work_distribution_one_to_many<T, BEN
 };
 
 template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
+class naive_multirow_multiright_shuffle_one_to_many: public one_to_many<T, BENCH_TYPE, ALLOC> {
+public:
+    explicit naive_multirow_multiright_shuffle_one_to_many(const json& args, std::chrono::nanoseconds min_measured_time)
+        :one_to_many<T, BENCH_TYPE, ALLOC>(false, labels.size(), min_measured_time), ref_(), targets_(), results_()
+    {
+        rows_per_block_ = args.value("rows_per_block", 8);
+        right_rows_per_thread_ = args.value("right_rows_per_thread", 4);
+        right_matrices_per_thread_ = args.value("right_matrices_per_thread", 4);
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return ref_;
+    }
+
+    const data_array<T, ALLOC>& targets() const override {
+        return targets_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return results_;
+    }
+
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("rows_per_block", std::to_string(rows_per_block_)),
+            std::make_pair("right_rows_per_thread", std::to_string(right_rows_per_thread_)),
+            std::make_pair("right_matrices_per_thread", std::to_string(right_matrices_per_thread_))
+        };
+    }
+
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
+        targets_ = load_matrix_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_matrices_same_size(ref_, targets_);
+    }
+
+    void prepare_impl() override {
+        results_ = data_array<T, ALLOC>{ref_.matrix_size() + targets_.matrix_size() - 1, targets_.num_matrices()};
+
+        cuda_malloc(&d_ref_, ref_.size());
+        cuda_malloc(&d_targets_, targets_.size());
+        cuda_malloc(&d_results_, results_.size());
+    }
+
+    void transfer_impl() {
+        cuda_memcpy_to_device(d_ref_, ref_);
+        cuda_memcpy_to_device(d_targets_, targets_);
+    }
+
+    void run_impl() override {
+        CUDA_ADAPTIVE_MEASURE(0, this->measure_alg(), this->sw_,
+                              run_ccn_multirow_multiright_shuffle(
+                                  d_ref_,
+                                  d_targets_,
+                                  d_results_,
+                                  targets_.matrix_size(),
+                                  results_.matrix_size(),
+                                  targets_.num_matrices(),
+                                  rows_per_block_,
+                                  right_rows_per_thread_,
+                                  right_matrices_per_thread_
+                              )
+        );
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(results_, d_results_);
+    }
+
+    void free_impl() override {
+        CUCH(cudaFree(d_results_));
+        CUCH(cudaFree(d_targets_));
+        CUCH(cudaFree(d_ref_));
+    }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return this->measure_alg() ? labels : std::vector<std::string>{};
+    }
+
+private:
+
+    static std::vector<std::string> labels;
+
+    data_array<T, ALLOC> ref_;
+    data_array<T, ALLOC> targets_;
+
+    data_array<T, ALLOC> results_;
+
+    T* d_ref_;
+    T* d_targets_;
+    T* d_results_;
+
+    dsize_t rows_per_block_;
+    dsize_t right_rows_per_thread_;
+    dsize_t right_matrices_per_thread_;
+};
+
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC>
+std::vector<std::string> naive_multirow_multiright_shuffle_one_to_many<T, BENCH_TYPE, ALLOC>::labels{
+    "Kernel"
+};
+
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
 class naive_shift_per_warp_shared_mem_rows_one_to_many: public one_to_many<T, BENCH_TYPE, ALLOC> {
 public:
     explicit naive_shift_per_warp_shared_mem_rows_one_to_many(const json& args, std::chrono::nanoseconds min_measured_time)

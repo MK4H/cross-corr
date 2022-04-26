@@ -343,6 +343,8 @@ std::unordered_map<std::string, std::function<int(
         {"nai_shuffle_specialized_n_to_m", run_measurement<naive_shuffle_specialized_n_to_m<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_multirow_shuffle_one_to_one", run_measurement<naive_multirow_shuffle_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_multileft_shuffle_one_to_one", run_measurement<naive_multileft_shuffle_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_multirow_multiright_shuffle_one_to_one", run_measurement<naive_multirow_multiright_shuffle_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
+        {"nai_multirow_multiright_shuffle_one_to_many", run_measurement<naive_multirow_multiright_shuffle_one_to_many<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_one_to_one", run_measurement<naive_shift_per_warp_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_simple_indexing_one_to_one", run_measurement<naive_shift_per_warp_simple_indexing_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
         {"nai_shift_per_warp_work_distribution_one_to_one", run_measurement<naive_shift_per_warp_work_distribution_one_to_one<DATA_TYPE, BENCH_TYPE, pinned_allocator<DATA_TYPE>>>},
