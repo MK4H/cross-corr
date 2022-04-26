@@ -323,8 +323,7 @@ public:
         left_matrices_per_thread_ = args.value("left_matrices_per_thread", 2);
         right_matrices_per_thread_ = args.value("right_matrices_per_thread", 2);
         rows_per_thread_ = args.value("rows_per_thread", 10);
-        // TODO: Add default work distribution
-        distribution_type_ = from_string(args.value("distribution_type", "none"));
+        distribution_type_ = from_string(args.value("distribution_type", "triangle"));
     }
 
     const data_array<T, ALLOC>& refs() const override {

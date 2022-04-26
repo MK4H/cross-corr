@@ -386,7 +386,7 @@ __global__ void ccn_multirow_shuffle(
     // This is unique for each thread, as each thread computes a single shift which
     // corresponds to a single output value
     dsize2_t output_pos = thread0_out_pos +
-            dsize2_t{ctb.thread_index().x, 0};
+            dsize2_t{warp.thread_rank(), 0};
 
     dsize2_t half_search_size = (search_size - 1) / 2;
 

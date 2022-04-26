@@ -160,6 +160,8 @@ __device__ void warp_shuffle_impl(
 
             // TODO: Maybe pragma unroll?
             for (dsize_t i = 0; i < warp.size(); ++i) {
+                // TODO: Merge into a single for loop which may be easier for compiler to unroll
+                //  and derive the r and l variables using modulo and division
                 #pragma unroll
                 for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
                     // Broadcast
@@ -189,6 +191,8 @@ __device__ void warp_shuffle_impl(
 
     if (args.output_pos.x < args.search_size.x && args.output_pos.y < args.search_size.y) {
         auto output_offset = args.output_pos.linear_idx(args.search_size.x);
+        // TODO: Merge into a single for loop which may be easier for compiler to unroll
+        //  and derive the r and l variables using modulo and division
         #pragma unroll
         for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
             #pragma unroll
@@ -343,7 +347,7 @@ __global__ void ccn_warp_shuffle_n_to_m_work_distribution(
     // This is unique for each thread, as each thread computes a single shift which
     // corresponds to a single output value
     dsize2_t output_pos = thread0_out_pos +
-                          dsize2_t{ctb.thread_index().x, 0};
+                          dsize2_t{warp.thread_rank(), 0};
 
     dsize2_t half_search_size = (search_size - 1) / 2;
 
