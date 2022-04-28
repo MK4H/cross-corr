@@ -20,7 +20,8 @@ namespace cg = cooperative_groups;
 namespace cross {
 
 constexpr unsigned int warp_size = 32;
-
+constexpr dsize_t max_num_right_rows = 4;
+constexpr dsize_t max_num_right_mats = 4;
 /**
  * Arguments for the warp_shuffle_impl function.
  * As we need to write many calls for different constant values of NUM_RIGHTS which
@@ -315,9 +316,6 @@ __device__ void multirow_multiright_shuffle_impl(
     }
 }
 
-constexpr dsize_t max_num_right_rows = 2;
-constexpr dsize_t max_num_right_mats = 2;
-
 template<dsize_t NUM_RIGHT_ROWS, dsize_t NUM_RIGHT_MATS, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
 __device__ void multirow_multiright_shuffle_impl_mats_dispatch(
     const cg::thread_block& ctb,
@@ -395,39 +393,15 @@ __global__ void ccn_multirow_multiright_shuffle(
     dsize_t max_right_rows,
     dsize_t right_matrices_per_thread
 ) {
-    // Initialize by loading a warp worth of data from left matrix
-    // as we will be iterating over the left matrix
-
-    // Then broadcast from the right data in sequence from all threads
-    // With each broadcast, multiply and sum with the current value from
-    // left matrix and then shuffle down the used values from left matrix.
-    // Then shuffle the second warp worth of data from left matrix,
-    // passing the last thread the value that is shuffled out of the thread 0
-    // and would be forgotten
-    // basically with warp size 4, it will go
-    // 0 1 2 3 0 1 2 3, then 1 2 3 0 1 2 3 x, then 2 3 0 1 2 3 x x,
-    // each time broadcasting first from thread 0, then 1, then 2
-    // Once we get to 0 1 2 3 x x x x, we load one warp worth of values
-    // from both left and right matrices
-
-    // If the shift computed by the current thread does not overlap with the broadcast value
-    // that means it tries to read from the left matrix out of bounds and thus will read 0
-    // and ignore the broadcast value
-    // By shifting the values down, when it reaches the part that overlaps it will receive
-    // value shifted from the previous thread
 
     cg::thread_block ctb = cg::this_thread_block();
     cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
 
-    // Index on the x axis in the strip of output matrices
-    dsize_t warp_x_index = ctb.group_index().x * ctb.group_dim().x;
-    // Each thread computes the same shifts in right_matrices_per_thread consecutive matrices
-    // This index tells us which group is to be computed by the current thread
-    dsize_t matrix_group_idx = warp_x_index / search_size.x;
-    // Offset in the given output matrix on the x axis
-    dsize_t output_x_offset = warp_x_index % search_size.x;
+    dsize_t blocks_per_matrix_group = div_up(search_size.x, warp_size);
+    dsize_t matrix_group_idx = ctb.group_index().x / blocks_per_matrix_group;
+    dsize_t matrix_group_block_offset = ctb.group_index().x % blocks_per_matrix_group;
 
-    // Index of the first matrix in the group processed by the current thread
+    dsize_t output_x_offset = matrix_group_block_offset * warp_size;
     dsize_t matrix_group_start_idx = matrix_group_idx * right_matrices_per_thread;
 
     // All warps of given block start at the same x, but each work on different row of output
@@ -482,7 +456,7 @@ __global__ void ccn_multirow_multiright_shuffle(
 
 
     RES* res = shared_memory_proxy<RES>();
-    for (dsize_t i = ctb.thread_rank(); i < max_right_rows * ctb.size(); i += ctb.size()) {
+    for (dsize_t i = ctb.thread_rank(); i < max_right_rows * right_matrices_per_thread * ctb.size(); i += ctb.size()) {
         res[i] = 0;
     }
     ctb.sync();
@@ -494,20 +468,6 @@ __global__ void ccn_multirow_multiright_shuffle(
 
     dsize_t warp_num_right_matrices = min(num_right_matrices - matrix_group_start_idx, right_matrices_per_thread);
 
-    if (warp.thread_rank() == 0) {
-        printf("Block: [%u, %u], Warp: %u, Output pos: [%u, %u], Matrix group start: %u, Warp right start: [%u, %u], Warp right end: [%u, %u]\n",
-               ctb.group_index().x,
-               ctb.group_index().y,
-               warp.meta_group_rank(),
-               output_pos.x,
-               output_pos.y,
-               matrix_group_start_idx,
-               warp_x_right_start,
-               warp_y_right_start,
-               warp_x_right_end,
-               warp_y_right_end
-        );
-    }
 
     auto args = create_warp_shuffle_impl_args(
         left,
@@ -558,8 +518,12 @@ void run_ccn_multirow_multiright_shuffle(
     }
 
     dim3 num_threads(32, cuda_rows_per_block);
+
+    dsize_t num_matrix_groups = div_up(num_right_matrices, right_matrices_per_thread);
+    dsize_t blocks_per_matrix_group = div_up(search_size.x, num_threads.x);
+
     dim3 num_blocks(
-        div_up(search_size.x * div_up(num_right_matrices, right_matrices_per_thread), num_threads.x),
+        blocks_per_matrix_group * num_matrix_groups,
         div_up(search_size.y, num_threads.y * max_right_rows)
     );
 

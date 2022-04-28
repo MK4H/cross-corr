@@ -128,7 +128,7 @@ protected:
         cuda_malloc(&d_result_, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }
@@ -223,7 +223,7 @@ protected:
         cuda_malloc(&d_result_, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }
@@ -323,9 +323,12 @@ protected:
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_target_, target_.size());
         cuda_malloc(&d_result_, result_.size());
+
+        // Need to zero out as work distribution uses atomicAdd on the results matrix
+        cuda_memset(d_result_, 0, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }
@@ -441,7 +444,7 @@ protected:
         cuda_malloc(&d_result_, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }
@@ -539,6 +542,9 @@ protected:
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_target_, target_.size());
         cuda_malloc(&d_result_, result_.size());
+
+        // Need to zero out as work distribution uses atomicAdd on the results matrix
+        cuda_memset(d_result_, 0, result_.size());
     }
 
     void transfer_impl() override {
@@ -655,7 +661,7 @@ protected:
         cuda_malloc(&d_result_, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }
@@ -754,7 +760,7 @@ std::vector<std::string> naive_shift_per_warp_simple_indexing_one_to_one<T, BENC
 //        cuda_malloc(&d_result_, result_.size());
 //    }
 //
-//    void transfer_impl() {
+//    void transfer_impl() override {
 //        cuda_memcpy_to_device(d_ref_, ref_);
 //        cuda_memcpy_to_device(d_target_, target_);
 //    }
@@ -867,7 +873,7 @@ protected:
         cuda_malloc(&d_result_, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }
@@ -976,7 +982,7 @@ protected:
         cuda_malloc(&d_result_, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }
@@ -1074,7 +1080,7 @@ protected:
         cuda_malloc(&d_result_, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }
@@ -1177,7 +1183,7 @@ protected:
         cuda_malloc(&d_result_, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }
@@ -1280,7 +1286,7 @@ protected:
         cuda_malloc(&d_result_, result_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_target_, target_);
     }

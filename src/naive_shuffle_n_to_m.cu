@@ -19,6 +19,8 @@ namespace cg = cooperative_groups;
 namespace cross {
 
 constexpr unsigned int warp_size = 32;
+constexpr dsize_t max_num_left_matrices = 4;
+constexpr dsize_t max_num_right_matrices = 4;
 
 /**
  * Arguments for the warp_shuffle_impl function.
@@ -207,9 +209,6 @@ __device__ void warp_shuffle_impl(
         }
     }
 }
-
-constexpr dsize_t max_num_left_matrices = 2;
-constexpr dsize_t max_num_right_matrices = 2;
 
 // TODO: Is this correct?
 template<dsize_t NUM_LEFTS, dsize_t NUM_RIGHTS, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>

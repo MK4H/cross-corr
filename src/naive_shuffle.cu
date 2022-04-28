@@ -20,6 +20,34 @@ namespace cross {
 
 constexpr unsigned int warp_size = 32;
 
+__device__ void get_matrix_group(
+    dsize_t output_size,
+    dsize_t ctb_index,
+    dsize_t matrices_per_thread,
+    dsize_t& warp_output_offset,
+    dsize_t& matrix_group_start_idx
+) {
+    // Matrix group is the group of right matrices (of at most right_matrices_per_thread matrices)
+    // for which current thread computes the given shift
+    // All warps in a block process the same 32 shifts in the x axis, but on different rows
+    // so warps in the first block compute shifts 0-31, warps in the second block compute shifts 32-63 etc.
+    // So each matrix_group needs to have as many threads as there are shifts in the x axis
+    // so number of shifts in the x axis / warp_size
+    // TODO: This is precomputed on CPU so we could pass it from there
+    dsize_t blocks_per_matrix_group = div_up(output_size, warp_size);
+
+    // Which matrix group this block and all its warps will compute
+    dsize_t matrix_group_idx = ctb_index / blocks_per_matrix_group;
+    // Offset of the current block and all of its warps in its matrix group
+    // This corresponds to the position to write to in the output and the shift
+    // to compute
+    dsize_t matrix_group_block_offset = ctb_index % blocks_per_matrix_group;
+    warp_output_offset = matrix_group_block_offset * warp_size;
+
+    // Index of the first matrix in the group processed by the current thread
+    matrix_group_start_idx = matrix_group_idx * matrices_per_thread;
+}
+
 /**
  * Arguments for the warp_shuffle_impl function.
  * As we need to write many calls for different constant values of NUM_RIGHTS which
@@ -214,16 +242,20 @@ __global__ void ccn_warp_shuffle(
     cg::thread_block ctb = cg::this_thread_block();
     cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
 
-    // Index on the x axis in the strip of output matrices
-    dsize_t warp_x_index = ctb.group_index().x * ctb.group_dim().x;
-    // Each thread computes the same shift in right_matrices_per_thread consecutive matrices
-    // This index tells us which group is to be computed by the current thread
-    dsize_t matrix_group_idx = warp_x_index / search_size.x;
-    // Offset in the given output matrix on the x axis
-    dsize_t output_x_offset = warp_x_index % search_size.x;
 
+    // Offset in the given output matrix on the x axis
+    dsize_t output_x_offset;
     // Index of the first matrix in the group processed by the current thread
-    dsize_t matrix_group_start_idx = matrix_group_idx * right_matrices_per_thread;
+    dsize_t matrix_group_start_idx;
+    get_matrix_group(
+        search_size.x,
+        ctb.group_index().x,
+        right_matrices_per_thread,
+        output_x_offset,
+        matrix_group_start_idx
+    );
+
+
     // All warps of given block start at the same x, but each work on different row of output
     dsize2_t thread0_out_pos = dsize2_t {
         output_x_offset,
@@ -336,25 +368,17 @@ __global__ void ccn_warp_shuffle_work_distribution(
     cg::thread_block ctb = cg::this_thread_block();
     cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
 
-    // Matrix group is the group of right matrices (of at most right_matrices_per_thread matrices)
-    // for which current thread computes the given shift
-    // All warps in a block process the same 32 shifts in the x axis, but on different rows
-    // so warps in the first block compute shifts 0-31, warps in the second block compute shifts 32-63 etc.
-    // So each matrix_group needs to have as many threads as there are shifts in the x axis
-    // so number of shifts in the x axis / warp_size
-    // TODO: This is precomputed on CPU so we could pass it from there
-    dsize_t blocks_per_matrix_group = div_up(search_size.x, warp_size);
 
-    // Which matrix group this block and all its warps will compute
-    dsize_t matrix_group_idx = ctb.group_index().x / blocks_per_matrix_group;
-    // Offset of the current block and all of its warps in its matrix group
-    // This corresponds to the position to write to in the output and the shift
-    // to compute
-    dsize_t matrix_group_block_offset = ctb.group_index().x % blocks_per_matrix_group;
-    dsize_t warp_output_x_offset = matrix_group_block_offset * warp_size;
-
+    dsize_t warp_output_x_offset;
     // Index of the first matrix in the group processed by the current thread
-    dsize_t matrix_group_start_idx = matrix_group_idx * right_matrices_per_thread;
+    dsize_t matrix_group_start_idx;
+    get_matrix_group(
+        search_size.x,
+        ctb.group_index().x,
+        right_matrices_per_thread,
+        warp_output_x_offset,
+        matrix_group_start_idx
+    );
 
     // Distribute rows of a single shift between multiple workers,
     // in this case threads
@@ -495,8 +519,13 @@ void run_ccn_warp_shuffle(
     }
 
     dim3 num_threads(32, cuda_rows_per_block);
+
+    dsize_t num_matrix_groups = div_up(num_right_matrices, right_matrices_per_thread);
+    dsize_t blocks_per_matrix_group = div_up(search_size.x, num_threads.x);
+
+
     dim3 num_blocks(
-            div_up(search_size.x * div_up(num_right_matrices, right_matrices_per_thread), num_threads.x),
+            blocks_per_matrix_group * num_matrix_groups,
             div_up(search_size.y, num_threads.y)
     );
 

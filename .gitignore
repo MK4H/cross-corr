@@ -5,4 +5,4 @@ cmake-build-debug
 .vscode
 __pycache__
 benchmarking/benchmarks
-benchmarking/validation
+benchmarking/validation/validation

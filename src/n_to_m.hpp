@@ -87,7 +87,7 @@ template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T
 class naive_original_alg_n_to_m: public n_to_m<T, BENCH_TYPE, ALLOC> {
 public:
     explicit naive_original_alg_n_to_m(const json& args, std::chrono::nanoseconds min_measured_time)
-        :n_to_m<T, BENCH_TYPE, ALLOC>(false, 0, min_measured_time), cudaStreams(), refs_(), targets_(), results_()
+        :n_to_m<T, BENCH_TYPE, ALLOC>(false, 0, min_measured_time), refs_(), targets_(), results_(), cudaStreams()
     {
         num_cuda_streams_ = args.value("num_cuda_streams", 8);
         cudaStreams.resize(num_cuda_streams_);
@@ -190,7 +190,7 @@ template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T
 class naive_warp_shuffle_work_distribution_n_to_m: public n_to_m<T, BENCH_TYPE, ALLOC> {
 public:
     explicit naive_warp_shuffle_work_distribution_n_to_m([[maybe_unused]] const json& args, std::chrono::nanoseconds min_measured_time)
-        :n_to_m<T, BENCH_TYPE, ALLOC>(false, 0, min_measured_time), cudaStreams(), refs_(), targets_(), results_()
+        :n_to_m<T, BENCH_TYPE, ALLOC>(false, 0, min_measured_time), refs_(), targets_(), results_(), cudaStreams()
     {
         block_y_size_ = args.value("block_y_size", 8);
         right_matrices_per_thread_ = args.value("right_matrices_per_thread", 2);
@@ -237,6 +237,9 @@ protected:
         cuda_malloc(&d_refs_, refs_.size());
         cuda_malloc(&d_targets_, targets_.size());
         cuda_malloc(&d_results_, results_.size());
+
+        // Need to zero out as work distribution uses atomicAdd on the results matrix
+        cuda_memset(d_results_, 0, results_.size());
 
         for (auto & cudaStream : cudaStreams) {
             CUCH(cudaStreamCreate(&cudaStream));

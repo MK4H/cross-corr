@@ -1,0 +1,290 @@
+benchmark:
+  name: validation
+  groups:
+    - name: one_to_one
+      config:
+        sizes:
+          - "10x10x1x1"
+          - "16x16x1x1"
+          - "32x32x1x1"
+          - "64x64x1x1"
+          - "313x313x1x1"
+        data_type: single
+        benchmark_type: None
+        outer_iterations: 1
+        inner_iterations: 2
+        validate: true
+        keep_output: false
+      runs:
+        - name: nai_orig
+          algorithm: nai_orig_one_to_one
+
+        - name: nai_warp_shuffle
+          algorithm: nai_warp_shuffle_one_to_one
+          args:
+            block_y_size: [8, 9, 16, 32]
+
+        - name: nai_warp_shuffle_work_dist
+          algorithm: nai_warp_shuffle_work_distribution_one_to_one
+          args:
+            block_y_size: [8, 9, 16, 32]
+            rows_per_thread: [1, 3, 5, 10, 20, 32, 64]
+            distribution_type: ["none", "rectangle", "triangle"]
+
+        - name: nai_multirow_shuffle
+          algorithm: nai_multirow_shuffle_one_to_one
+          args:
+            block_y_size: [8, 9, 16]
+            right_rows_per_thread: [1, 2, 3, 4]
+
+        - name: nai_multileft_shuffle
+          algorithm: nai_multileft_shuffle_one_to_one
+          args:
+            block_y_size: [8, 9, 16]
+            shifts_per_thread: [1, 2, 3, 4]
+            left_rows_per_thread: [1, 2, 3, 4]
+
+        - name: nai_multirow_multiright_shuffle
+          algorithm: nai_multirow_multiright_shuffle_one_to_one
+          args:
+            block_y_size: [8, 9, 16]
+            right_rows_per_thread: [1, 2, 3, 4]
+
+        - name: nai_warp_per_shift
+          algorithm: nai_shift_per_warp_one_to_one
+          args:
+            shifts_per_block: [8, 9, 16, 32]
+
+        - name: nai_shift_per_warp_simple_indexing
+          algorithm: nai_shift_per_warp_simple_indexing_one_to_one
+          args:
+            shifts_per_block: [8, 9, 16, 32]
+
+
+        - name: nai_shift_per_warp_work_distribution
+          algorithm: nai_shift_per_warp_work_distribution_one_to_one
+          args:
+            shifts_per_block: [8, 9, 16, 32]
+            rows_per_warp: [1, 3, 5, 10, 20, 32, 64]
+            distribution_type: ["none", "rectangle", "triangle"]
+
+        - name: nai_shift_per_warp_shared_mem_rows
+          algorithm: nai_shift_per_warp_shared_mem_rows_one_to_one
+          args:
+            shifts_per_block: [8, 9, 16, 32]
+            shared_mem_row_size: [32, 64, 128, 256]
+            strided_load: [true, false]
+
+        # The FFT algs have high max divergence for small values
+        # but mean divergence is good
+        # - name: fft_orig
+        #   algorithm: fft_orig_one_to_one
+        #   args:
+        #     hadamard_threads_per_block: [128, 256, 512]
+
+        # - name: fft_reduced_transfer
+        #   algorithm: fft_reduced_transfer_one_to_one
+        #   args:
+        #     scatter_threads_per_block: [128, 256, 512]
+        #     scatter_items_per_thread: [1, 5, 10]
+        #     hadamard_threads_per_block: [128, 256, 512]
+
+    - name: one_to_many
+      config:
+        sizes:
+          - "10x10x1x2"
+          - "16x16x1x2"
+          - "32x32x1x2"
+          - "64x64x1x2"
+          - "313x313x1x2"
+          - "10x10x1x4"
+          - "16x16x1x4"
+          - "32x32x1x4"
+          - "64x64x1x4"
+          - "313x313x1x4"
+          - "10x10x1x5"
+          - "16x16x1x5"
+          - "32x32x1x5"
+          - "64x64x1x5"
+          - "313x313x1x5"
+          - "10x10x1x11"
+          - "16x16x1x11"
+          - "32x32x1x11"
+          - "64x64x1x11"
+          - "313x313x1x11"
+        data_type: single
+        benchmark_type: None
+        outer_iterations: 1
+        inner_iterations: 2
+        validate: true
+        keep_output: false
+      runs:
+        - name: nai_orig
+          algorithm: nai_orig_one_to_many
+
+        - name: nai_warp_shuffle
+          algorithm: nai_warp_shuffle_one_to_many
+          args:
+            block_y_size: [8, 9, 16, 32]
+            right_matrices_per_thread: [1, 2, 3, 4]
+
+        - name: nai_warp_shuffle_work_dist
+          algorithm: nai_warp_shuffle_work_distribution_one_to_many
+          args:
+            block_y_size: [8, 9, 16, 32]
+            rows_per_thread: [1, 3, 5, 10, 20, 32, 64]
+            distribution_type: ["none", "rectangle", "triangle"]
+            right_matrices_per_thread: [1, 2, 3, 4]
+
+        - name: nai_multirow_multiright_shuffle
+          algorithm: nai_multirow_multiright_shuffle_one_to_many
+          args:
+            block_y_size: [8, 9, 16, 32]
+            right_rows_per_thread: [1, 2, 3, 4]
+            right_matrices_per_thread: [1, 2, 3, 4]
+
+        - name: nai_shift_per_warp_shared_mem_rows
+          algorithm: nai_shift_per_warp_shared_mem_rows_one_to_many
+          args:
+            shifts_per_block: [8, 9, 16, 32]
+            shared_mem_row_size: [32, 64, 128, 256]
+            strided_load: [true, false]
+            right_matrices_per_block: [1, 2, 3, 4]
+
+        # The FFT algs have high max divergence for small values
+        # - name: fft_orig
+        #   algorithm: fft_orig_one_to_many
+        #   args:
+        #     hadamard_threads_per_block: [128, 256, 512]
+
+        # - name: fft_reduced_transfer
+        #   algorithm: fft_reduced_transfer_one_to_many
+        #   args:
+        #     scatter_threads_per_block: [128, 256, 512]
+        #     scatter_items_per_thread: [1, 5, 10]
+        #     hadamard_threads_per_block: [128, 256, 512]
+
+    - name: n_to_mn
+      config:
+        sizes:
+          - "10x10x1x2"
+          - "16x16x1x2"
+          - "32x32x1x2"
+          - "64x64x1x2"
+          - "313x313x1x2"
+          - "10x10x1x4"
+          - "16x16x1x4"
+          - "32x32x1x4"
+          - "64x64x1x4"
+          - "313x313x1x4"
+          - "10x10x1x5"
+          - "16x16x1x5"
+          - "32x32x1x5"
+          - "64x64x1x5"
+          - "313x313x1x5"
+          - "10x10x1x11"
+          - "16x16x1x11"
+          - "32x32x1x11"
+          - "64x64x1x11"
+          - "313x313x1x11"
+          - "10x10x2x4"
+          - "16x16x2x4"
+          - "32x32x2x4"
+          - "64x64x2x4"
+          - "313x313x2x4"
+          - "10x10x3x9"
+          - "16x16x3x9"
+          - "32x32x3x9"
+          - "64x64x3x9"
+          - "313x313x3x9"
+          - "10x10x4x12"
+          - "16x16x4x12"
+          - "32x32x4x12"
+          - "64x64x4x12"
+          - "313x313x4x12"
+        data_type: single
+        benchmark_type: None
+        outer_iterations: 1
+        inner_iterations: 2
+        validate: true
+        keep_output: false
+      runs:
+        - name: nai_orig
+          algorithm: nai_orig_n_to_mn
+
+        # The FFT algs have high max divergence for small values
+        # - name: fft_orig
+        #   algorithm: fft_orig_n_to_mn
+        #   args:
+        #     hadamard_threads_per_block: [128, 256, 512]
+
+        # - name: fft_reduced_transfer
+        #   algorithm: fft_reduced_transfer_n_to_mn
+        #   args:
+        #     scatter_threads_per_block: [128, 256, 512]
+        #     scatter_items_per_thread: [1, 5, 10]
+        #     hadamard_threads_per_block: [128, 256, 512]
+
+    - name: n_to_m
+      config:
+        sizes:
+          - "10x10x1x5"
+          - "16x16x1x5"
+          - "32x32x1x5"
+          - "64x64x1x5"
+          - "313x313x1x5"
+          - "10x10x2x4"
+          - "16x16x2x4"
+          - "32x32x2x4"
+          - "64x64x2x4"
+          - "313x313x2x4"
+          - "10x10x3x9"
+          - "16x16x3x9"
+          - "32x32x3x9"
+          - "64x64x3x9"
+          - "313x313x3x9"
+          - "10x10x4x12"
+          - "16x16x4x12"
+          - "32x32x4x12"
+          - "64x64x4x12"
+          - "313x313x4x12"
+          - "10x10x2x3"
+          - "16x16x2x3"
+          - "32x32x2x3"
+          - "64x64x2x3"
+          - "313x313x2x3"
+          - "10x10x3x7"
+          - "16x16x3x7"
+          - "32x32x3x7"
+          - "64x64x3x7"
+          - "313x313x3x7"
+          - "10x10x4x2"
+          - "16x16x4x2"
+          - "32x32x4x2"
+          - "64x64x4x2"
+          - "313x313x4x2"
+        data_type: single
+        benchmark_type: None
+        outer_iterations: 1
+        inner_iterations: 2
+        validate: true
+        keep_output: false
+      runs:
+        - name: nai_orig
+          algorithm: nai_orig_n_to_m
+
+        - name: nai_shuffle_specialized
+          algorithm: nai_shuffle_specialized_n_to_m
+          args:
+            block_y_size: [8, 9, 32]
+            left_matrices_per_thread: [3, 4]
+            right_matrices_per_thread: [3, 4]
+            rows_per_thread: [1, 3, 5, 64]
+            distribution_type: ["none", "rectangle", "triangle"]
+
+        # The FFT algs have high max divergence for small values
+        # - name: fft_better
+        #   algorithm: fft_better_n_to_m
+        #   args:
+        #     hadamard_items_per_thread: [1, 5, 10]
+        #     hadamard_threads_per_block: [128, 256, 512]

@@ -486,7 +486,7 @@ public:
         }
     }
 
-    void store_to_csv(std::ofstream& output) const {
+    void store_to_csv(std::ostream& output) const {
         impl::csv::write_header(output, matrix_size_, num_matrices_);
 
         for (dsize_t i = 0; i < num_matrices_; ++i) {

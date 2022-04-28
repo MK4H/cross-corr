@@ -1057,7 +1057,6 @@ void run_ccn_shift_per_warp_shared_mem_rows(
             right_matrices_per_block
         );
     }
-
 }
 
 template void run_ccn_shift_per_warp<int, int>(

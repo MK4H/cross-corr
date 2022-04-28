@@ -236,8 +236,21 @@ int run_measurement(
     bool do_compute_measurement = ALG::benchmarking_type == BenchmarkType::Compute;
     for (std::size_t loop = 0; loop < run_args.outer_loops; ++loop) {
         CPU_ADAPTIVE_MEASURE(0, do_compute_measurement, sw, true,
-             run_computation_steps(alg, logger)
+            int ret = run_computation_steps(alg, logger);
+            if (ret != 0) {
+                return ret;
+            }
         );
+
+        // TODO: Maybe integrate into the algorithm itself, maybe free or finalize step
+        try {
+            CUCH(cudaDeviceSynchronize());
+            CUCH(cudaGetLastError());
+        } catch (std::exception& e) {
+            std::cerr << "Exception somewhere in CUDA code: " << e.what() << std::endl;
+            return 3;
+        }
+
 
         if (ALG::benchmarking_type != BenchmarkType::None) {
             if (!do_compute_measurement) {

@@ -215,7 +215,7 @@ protected:
         cuda_malloc(&d_results_, results_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_targets_, targets_);
     }
@@ -318,9 +318,12 @@ protected:
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_targets_, targets_.size());
         cuda_malloc(&d_results_, results_.size());
+
+        // Need to zero out as work distribution uses atomicAdd on the results matrix
+        cuda_memset(d_results_, 0, results_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_targets_, targets_);
     }
@@ -441,7 +444,7 @@ protected:
         cuda_malloc(&d_results_, results_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_targets_, targets_);
     }
@@ -565,7 +568,7 @@ protected:
         cuda_malloc(&d_results_, results_.size());
     }
 
-    void transfer_impl() {
+    void transfer_impl() override {
         cuda_memcpy_to_device(d_ref_, ref_);
         cuda_memcpy_to_device(d_targets_, targets_);
     }
