@@ -5,6 +5,7 @@
             "path": "nai_multileft_shuffle_128.ncu-rep"
         },
         {
+            "is_open": true,
             "path": "nai_multileft_shuffle_256.ncu-rep"
         },
         {
@@ -126,14 +127,33 @@
         },
         {
             "group_id": "{34b3f53e-fa0e-4dc1-bb9e-fa5dcd19ff39}",
-            "is_open": true,
             "path": "nai_warp_shuffle_multiright.ncu-rep"
+        },
+        {
+            "group_id": "{34b3f53e-fa0e-4dc1-bb9e-fa5dcd19ff39}",
+            "path": "nai_shift_per_warp_basic_indexing.ncu-rep"
+        },
+        {
+            "group_id": "{34b3f53e-fa0e-4dc1-bb9e-fa5dcd19ff39}",
+            "path": "nai_shift_per_warp_simple_indexing.ncu-rep"
+        },
+        {
+            "group_id": "{cb18e6f7-10e5-44c1-bfaa-ca0aaeba479a}",
+            "path": "nai_shift_per_warp_shared_mem_rows_256_256_1_16_1.ncu-rep"
+        },
+        {
+            "group_id": "{cb18e6f7-10e5-44c1-bfaa-ca0aaeba479a}",
+            "path": "nai_shift_per_warp_shared_mem_rows_256_256_1_16_8.ncu-rep"
         }
     ],
     "groups": [
         {
             "group_id": "{34b3f53e-fa0e-4dc1-bb9e-fa5dcd19ff39}",
             "group_name": "text"
+        },
+        {
+            "group_id": "{cb18e6f7-10e5-44c1-bfaa-ca0aaeba479a}",
+            "group_name": "args"
         }
     ],
     "launcher": {

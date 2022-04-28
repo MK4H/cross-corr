@@ -5,6 +5,7 @@ from pathlib import Path
 
 from shared import InputSize, Benchmark, load_group_results
 
+
 def per_matrix_size(args: argparse.Namespace):
     benchmarks = load_group_results(args.results_path)
     matrix_number_groups = set([(benchmark.input_size.left_matrices, benchmark.input_size.right_matrices) for benchmark in benchmarks])
@@ -28,6 +29,7 @@ def per_matrix_size(args: argparse.Namespace):
     plt.legend()
     plt.show()
 
+
 def main():
     parser = argparse.ArgumentParser("Plotting results measured by benchmarking scripts")
     parser.add_argument("results_path",
@@ -36,6 +38,7 @@ def main():
 
     args = parser.parse_args()
     per_matrix_size(args)
+
 
 if __name__ == "__main__":
     main()
