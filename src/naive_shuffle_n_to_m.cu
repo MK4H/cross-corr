@@ -19,8 +19,8 @@ namespace cg = cooperative_groups;
 namespace cross {
 
 constexpr unsigned int warp_size = 32;
-constexpr dsize_t max_num_left_matrices = 2;
-constexpr dsize_t max_num_right_matrices = 2;
+constexpr dsize_t max_num_left_matrices = 4;
+constexpr dsize_t max_num_right_matrices = 4;
 
 /**
  * Arguments for the warp_shuffle_impl function.
@@ -181,13 +181,17 @@ __device__ void warp_shuffle_impl(
 
                 #pragma unroll
                 for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
+                    T bottom_shift_val;
+                    if (warp.thread_rank() != 0) {
+                        bottom_shift_val = thread_left_bottom[l];
+                    } else {
+                        // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
+                        //  making it behave as one continuous buffer
+                        bottom_shift_val = thread_left_top[l];
+                    }
                     // Shuffle does modulo srcLane automatically
-                    // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
-                    //  making it behave as one continuous buffer
-                    thread_left_bottom[l] = warp.shfl(
-                        warp.thread_rank() != 0 ? thread_left_bottom[l] : thread_left_top[l],
-                        warp.thread_rank() + 1
-                    );
+                    thread_left_bottom[l] = warp.shfl(bottom_shift_val, warp.thread_rank() + 1);
+
                     thread_left_top[l] = warp.shfl_down(thread_left_top[l], 1);
                 }
             }

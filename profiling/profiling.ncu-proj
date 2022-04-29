@@ -5,7 +5,6 @@
             "path": "nai_multileft_shuffle_128.ncu-rep"
         },
         {
-            "is_open": true,
             "path": "nai_multileft_shuffle_256.ncu-rep"
         },
         {
@@ -96,9 +95,8 @@
             "path": "nai_warp_shuffle_work_distribution_64.ncu-rep"
         },
         {
-            "path": "nai_shuffle_specialized_n_to_m.ncu-rep"
-        },
-        {
+            "group_id": "{3706bd97-6a21-4365-9217-da56469aff71}",
+            "is_open": true,
             "path": "nai_shuffle_specialized_n_to_m_orig.ncu-rep"
         },
         {
@@ -144,6 +142,19 @@
         {
             "group_id": "{cb18e6f7-10e5-44c1-bfaa-ca0aaeba479a}",
             "path": "nai_shift_per_warp_shared_mem_rows_256_256_1_16_8.ncu-rep"
+        },
+        {
+            "group_id": "{3706bd97-6a21-4365-9217-da56469aff71}",
+            "path": "nai_shuffle_specialized_n_to_m_no_local.ncu-rep"
+        },
+        {
+            "group_id": "{3706bd97-6a21-4365-9217-da56469aff71}",
+            "is_open": true,
+            "path": "nai_shuffle_specialized_n_to_m.ncu-rep"
+        },
+        {
+            "group_id": "{3706bd97-6a21-4365-9217-da56469aff71}",
+            "path": "nai_shuffle_specialized_n_to_m_orig4.ncu-rep"
         }
     ],
     "groups": [
@@ -154,6 +165,10 @@
         {
             "group_id": "{cb18e6f7-10e5-44c1-bfaa-ca0aaeba479a}",
             "group_name": "args"
+        },
+        {
+            "group_id": "{3706bd97-6a21-4365-9217-da56469aff71}",
+            "group_name": "local_mem"
         }
     ],
     "launcher": {

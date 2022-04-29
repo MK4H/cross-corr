@@ -244,6 +244,26 @@ traitlets = ">=5.1.0,<6.0"
 test = ["pytest (!=5.3.4)", "pytest-cov", "flaky", "ipyparallel"]
 
 [[package]]
+name = "ipympl"
+version = "0.9.1"
+description = "Matplotlib Jupyter Extension"
+category = "main"
+optional = false
+python-versions = "*"
+
+[package.dependencies]
+ipython = "<9"
+ipython-genutils = "*"
+ipywidgets = ">=7.6.0,<8"
+matplotlib = ">=3.4.0,<4"
+numpy = "*"
+pillow = "*"
+traitlets = "<6"
+
+[package.extras]
+docs = ["myst-nb", "Sphinx (>=1.5)", "sphinx-copybutton", "sphinx-thebe", "sphinx-togglebutton", "sphinx-book-theme"]
+
+[[package]]
 name = "ipython"
 version = "8.0.1"
 description = "IPython: Productive Interactive Computing"
@@ -1060,7 +1080,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytest-
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "694263357b2899c76297238050bf2b324075aff1aafc01d6a8710238624ab111"
+content-hash = "b62d614ecd2b4bde9ee0d43a468830e61b7703d9ab0567c690ade897feecdbad"
 
 [metadata.files]
 appnope = [
@@ -1249,6 +1269,10 @@ importlib-resources = [
 ipykernel = [
     {file = "ipykernel-6.7.0-py3-none-any.whl", hash = "sha256:6203ccd5510ff148e9433fd4a2707c5ce8d688f026427f46e13d7ebf9b3e9787"},
     {file = "ipykernel-6.7.0.tar.gz", hash = "sha256:d82b904fdc2fd8c7b1fbe0fa481c68a11b4cd4c8ef07e6517da1f10cc3114d24"},
+]
+ipympl = [
+    {file = "ipympl-0.9.1-py2.py3-none-any.whl", hash = "sha256:3505b472d412178fd115e255764d1e7e7632d6c82e9de6d62b25438a35374680"},
+    {file = "ipympl-0.9.1.tar.gz", hash = "sha256:64096900c6392d53761a68ef6dd07541cc75672f9c3f84a3bb44bf8f9bbc3787"},
 ]
 ipython = [
     {file = "ipython-8.0.1-py3-none-any.whl", hash = "sha256:c503a0dd6ccac9c8c260b211f2dd4479c042b49636b097cc9a0d55fe62dff64c"},
