@@ -431,7 +431,7 @@ __global__ void ccn_warp_shuffle_n_to_m_work_distribution(
     );
 }
 
-}
+} // END anonymous namespace
 
 template<typename DIST, typename T, typename RES>
 void run_ccn_warp_shuffle_n_to_m_work_distribution(

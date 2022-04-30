@@ -883,7 +883,7 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
     }
 }
 
-}
+} // END anonymous namespace
 
 template<typename T, typename RES>
 void run_ccn_shift_per_warp(

@@ -151,7 +151,7 @@ __global__ void hadamard_n_to_m_over_output(
     }
 }
 
-}
+} // END anonymous namespace
 
 template<typename T>
 void run_hadamard_original(

@@ -511,7 +511,7 @@ __global__ void ccn_warp_shuffle_work_distribution(
     }
 }
 
-}
+} // END anonymous namespace
 
 template<typename T, typename RES>
 void run_ccn_warp_shuffle(

@@ -101,7 +101,7 @@ __global__ void ccn_shift_per_block(
     }
 }
 
-}
+} // END anonymous namespace
 
 template<typename T, typename RES>
 void run_ccn_shift_per_block(

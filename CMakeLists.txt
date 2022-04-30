@@ -52,6 +52,7 @@ set(CUDA_SOURCES
         ${CMAKE_SOURCE_DIR}/src/scatter.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle_n_to_m_orig.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle_multileft_orig.cu
+        ${CMAKE_SOURCE_DIR}/src/naive_shuffle_n_to_mn_complete.cu
 )
 
 add_executable(cross ${CPP_SOURCES} ${CUDA_SOURCES})

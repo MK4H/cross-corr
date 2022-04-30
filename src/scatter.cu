@@ -47,7 +47,7 @@ __global__ void scatter(
     }
 }
 
-}
+} // END anonymous namespace
 
 template<typename T>
 void run_scatter(

@@ -102,7 +102,7 @@ __global__ void cross_corr_naive_original(
     }
 }
 
-}
+} // END anonymous namespace
 
 template<typename T, typename RES>
 void run_cross_corr_naive_original(

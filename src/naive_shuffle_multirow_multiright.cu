@@ -520,7 +520,7 @@ __global__ void ccn_multirow_multiright_shuffle(
     );
 }
 
-}
+} // END anonymous namespace
 
 template<typename T, typename RES>
 void run_ccn_multirow_multiright_shuffle(

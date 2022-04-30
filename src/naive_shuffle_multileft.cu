@@ -602,7 +602,7 @@ __host__ void ccn_multileft_shuffle_dispatch(
     }
 }
 
-}
+} // END anonymous namespace
 
 template<typename T, typename RES>
 void run_ccn_multileft_shuffle(
