@@ -91,9 +91,6 @@ __device__ warp_shuffle_impl_args<T, RES> create_warp_shuffle_impl_args(
     );
 }
 
-#define L(rl, num_lefts) ((rl) % (num_lefts))
-#define R(rl, num_lefts) ((rl) / (num_lefts))
-
 template<dsize_t NUM_LEFTS, dsize_t NUM_RIGHTS, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
 __device__ void warp_shuffle_impl(
     const cg::thread_block_tile<WARP_SIZE>& warp,
@@ -168,19 +165,16 @@ __device__ void warp_shuffle_impl(
 
             // TODO: Maybe pragma unroll?
             for (dsize_t i = 0; i < warp.size(); ++i) {
-                //  Merged two nested for loops into a single for loop which may be easier for compiler to unroll
-                //  and derive the r and l variables using modulo and division
-                T right_val;
                 #pragma unroll
-                for (dsize_t rl = 0; rl < NUM_LEFTS * NUM_RIGHTS; ++rl) {
-                    //
-                    if (L(rl, NUM_LEFTS) == 0) {
-                        right_val = warp.shfl(thread_right[R(rl, NUM_LEFTS)], i);
-                    }
+                for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
+                    // Broadcast
+                    auto right_val = warp.shfl(thread_right[r], i);
 
-                    // No need to mask, if either values is out of bounds the value will be 0
-                    sum[L(rl, NUM_LEFTS) * NUM_RIGHTS + R(rl, NUM_LEFTS)] +=
-                        thread_left_bottom[L(rl, NUM_LEFTS)] * right_val;
+                    #pragma unroll
+                    for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
+                        // No need to mask, if either values is out of bounds the value will be 0
+                        sum[l * NUM_RIGHTS + r] += thread_left_bottom[l] * right_val;
+                    }
                 }
 
                 #pragma unroll
@@ -209,16 +203,16 @@ __device__ void warp_shuffle_impl(
 
     if (args.output_pos.x < args.search_size.x && args.output_pos.y < args.search_size.y) {
         auto output_offset = args.output_pos.linear_idx(args.search_size.x);
-        // Merge two nested for loops into a single for loop which may be easier for compiler to unroll
-        //  and derive the r and l variables using modulo and division
         #pragma unroll
-        for (dsize_t rl = 0; rl < NUM_LEFTS * NUM_RIGHTS; ++rl) {
-            T* matrix =
-                args.out + (L(rl, NUM_LEFTS) * args.num_right_matrices + R(rl, NUM_LEFTS)) * args.search_size.area();
-            if (ATOMIC) {
-                atomicAdd(matrix + output_offset, sum[L(rl, NUM_LEFTS) * NUM_RIGHTS + R(rl, NUM_LEFTS)]);
-            } else {
-                matrix[output_offset] = sum[L(rl, NUM_LEFTS) * NUM_RIGHTS + R(rl, NUM_LEFTS)];
+        for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
+            #pragma unroll
+            for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
+                T* matrix = args.out + (l * args.num_right_matrices + r) * args.search_size.area();
+                if (ATOMIC) {
+                    atomicAdd(matrix + output_offset, sum[l * NUM_RIGHTS + r]);
+                } else {
+                    matrix[output_offset] = sum[l * NUM_RIGHTS + r];
+                }
             }
         }
     }
