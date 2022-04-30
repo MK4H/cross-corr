@@ -11,6 +11,7 @@
             "path": "nai_multileft_shuffle_512.ncu-rep"
         },
         {
+            "is_open": true,
             "path": "nai_multileft_shuffle_64.ncu-rep"
         },
         {
@@ -155,6 +156,10 @@
         {
             "group_id": "{3706bd97-6a21-4365-9217-da56469aff71}",
             "path": "nai_shuffle_specialized_n_to_m_orig4.ncu-rep"
+        },
+        {
+            "is_open": true,
+            "path": "nai_multileft_shuffle_one_to_one.ncu-rep"
         }
     ],
     "groups": [

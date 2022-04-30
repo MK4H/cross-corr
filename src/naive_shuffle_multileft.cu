@@ -192,13 +192,22 @@ __device__ void compute_row_group(
 
             #pragma unroll
             for (dsize_t l = 0; l < NUM_LEFT_ROWS; ++l) {
+
+                // This if cannot be changed into ternary operator
+                // as nvcc fails to optimize the two arrays into registers
+                // and instead puts them into local memory when ternary operator
+                // is used
+                T bottom_shift_val;
+                if (warp.thread_rank() != 0) {
+                    bottom_shift_val = thread_left_bottom[l];
+                } else {
+                    // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
+                    //  making it behave as one continuous buffer
+                    bottom_shift_val = thread_left_top[l];
+                }
                 // Shuffle does modulo srcLane automatically
-                // Lane 0 pushes the bottom-most value of the top buffer to the top of the bottom buffer
-                //  making it behave as one continuous buffer
-                thread_left_bottom[l] = warp.shfl(
-                    warp.thread_rank() != 0 ? thread_left_bottom[l] : thread_left_top[l],
-                    warp.thread_rank() + 1
-                );
+                thread_left_bottom[l] = warp.shfl(bottom_shift_val, warp.thread_rank() + 1);
+
                 thread_left_top[l] = warp.shfl_down(thread_left_top[l], 1);
             }
         }

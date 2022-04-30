@@ -1240,6 +1240,111 @@ std::vector<std::string> naive_multileft_shuffle_one_to_one<T, BENCH_TYPE, ALLOC
     "Kernel"
 };
 
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
+class naive_multileft_shuffle_one_to_one_orig: public one_to_one<T, BENCH_TYPE, ALLOC> {
+public:
+    explicit naive_multileft_shuffle_one_to_one_orig(const json& args, std::chrono::nanoseconds min_measured_time)
+        :one_to_one<T, BENCH_TYPE, ALLOC>(false, labels.size(), min_measured_time), ref_(), target_(), result_()
+    {
+        block_y_size_ = args.value("block_y_size", 8);
+        shifts_per_thread_ = args.value("shifts_per_thread", 4);
+        left_rows_per_thread_ = args.value("left_rows_per_thread", 3);
+
+    }
+
+    const data_array<T, ALLOC>& refs() const override {
+        return ref_;
+    }
+
+    const data_array<T, ALLOC>& targets() const override {
+        return target_;
+    }
+
+    const data_array<T, ALLOC>& results() const override {
+        return result_;
+    }
+
+    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
+        return std::vector<std::pair<std::string, std::string>>{
+            std::make_pair("block_y_size", std::to_string(block_y_size_)),
+            std::make_pair("shifts_per_thread", std::to_string(shifts_per_thread_)),
+            std::make_pair("left_rows_per_thread", std::to_string(left_rows_per_thread_))
+        };
+    }
+
+protected:
+    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
+        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
+        target_ = load_matrix_from_csv<T, no_padding, ALLOC>(target_path);
+
+        this->check_matrices_same_size(ref_, target_);
+    }
+
+    void prepare_impl() override {
+        result_ = data_array<T, ALLOC>{ref_.matrix_size() + target_.matrix_size() - 1, 1};
+
+        cuda_malloc(&d_ref_, ref_.size());
+        cuda_malloc(&d_target_, target_.size());
+        cuda_malloc(&d_result_, result_.size());
+    }
+
+    void transfer_impl() override {
+        cuda_memcpy_to_device(d_ref_, ref_);
+        cuda_memcpy_to_device(d_target_, target_);
+    }
+
+    void run_impl() override {
+        CUDA_ADAPTIVE_MEASURE(0, this->measure_alg(), this->sw_,
+                              orig::run_ccn_multileft_shuffle(
+                                  d_ref_,
+                                  d_target_,
+                                  d_result_,
+                                  target_.matrix_size(),
+                                  result_.matrix_size(),
+                                  block_y_size_,
+                                  shifts_per_thread_,
+                                  left_rows_per_thread_
+                              )
+        );
+    }
+
+    void finalize_impl() override {
+        cuda_memcpy_from_device(result_, d_result_);
+    }
+
+    void free_impl() override {
+        CUCH(cudaFree(d_result_));
+        CUCH(cudaFree(d_target_));
+        CUCH(cudaFree(d_ref_));
+    }
+
+    std::vector<std::string> measurement_labels_impl() const override {
+        return this->measure_alg() ? labels : std::vector<std::string>{};
+    }
+
+private:
+
+    static std::vector<std::string> labels;
+
+    data_array<T, ALLOC> ref_;
+    data_array<T, ALLOC> target_;
+
+    data_array<T, ALLOC> result_;
+
+    T* d_ref_;
+    T* d_target_;
+    T* d_result_;
+
+    dsize_t block_y_size_;
+    dsize_t shifts_per_thread_;
+    dsize_t left_rows_per_thread_;
+};
+
+template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC>
+std::vector<std::string> naive_multileft_shuffle_one_to_one_orig<T, BENCH_TYPE, ALLOC>::labels{
+    "Kernel"
+};
+
 
 template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
 class naive_multirow_multiright_shuffle_one_to_one: public one_to_one<T, BENCH_TYPE, ALLOC> {
