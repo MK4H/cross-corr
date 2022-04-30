@@ -11,8 +11,9 @@
 
 namespace cg = cooperative_groups;
 
-namespace cross
-{
+namespace cross {
+
+namespace {
 
 /**
  * Complex multiplication of "left" with complex conjugate of "right"
@@ -21,7 +22,7 @@ template<typename T>
 __device__ inline T multiply_conjugate(T left, T right) {
     return T{
         left.x * right.x + left.y * right.y,
-        - left.x * right.y + left.y * right.x
+        -left.x * right.y + left.y * right.x
     };
 }
 
@@ -49,7 +50,11 @@ __global__ void hadamard_original(
         return;
     }
 
-    for (dsize_t i = ref_idx; i < subregion_size.area() * subregions_per_pic * batch_size; i += subregion_size.area() * subregions_per_pic) {
+    for (
+        dsize_t i = ref_idx;
+        i < subregion_size.area() * subregions_per_pic * batch_size;
+        i += subregion_size.area() * subregions_per_pic
+    ) {
         // Deformed complex conjugate
         deformed[i] = multiply_conjugate(ref[ref_idx], deformed[i]);
     }
@@ -83,7 +88,11 @@ __global__ void hadamard_n_to_m_over_right(
     auto output_length_per_left_array = right_num * array_length;
     // TODO: Give each thread block continous part of the right data array to process instead of
     //  interleaving the data processed by different blocks
-    for (dsize_t r_idx = thread_start_offset; r_idx < right_num * array_length; r_idx += ctb.group_dim().x * grid.group_dim().x) {
+    for (
+        dsize_t r_idx = thread_start_offset;
+        r_idx < right_num * array_length;
+        r_idx += ctb.group_dim().x * grid.group_dim().x
+    ) {
         auto r_val = right[r_idx];
 
         auto r_arr_idx = r_idx / array_length;
@@ -96,7 +105,7 @@ __global__ void hadamard_n_to_m_over_right(
         for (dsize_t l_arr_idx = 0; l_arr_idx < left_num; ++l_arr_idx) {
             auto l_idx = l_arr_idx * array_length + input_offset;
             auto out_idx = l_arr_idx * output_length_per_left_array + output_offset;
-            out[out_idx] =  multiply_conjugate(left[l_idx], r_val);
+            out[out_idx] = multiply_conjugate(left[l_idx], r_val);
         }
     }
 }
@@ -127,7 +136,11 @@ __global__ void hadamard_n_to_m_over_output(
     auto output_length_per_left_array = right_num * array_length;
     // TODO: Give each thread block continous part of the right data array to process instead of
     //  interleaving the data processed by different blocks
-    for (dsize_t thread_offset = thread_start_offset; thread_offset < left_num * right_num * matrix_size.area(); thread_offset += ctb.group_dim().x * grid.group_dim().x) {
+    for (
+        dsize_t thread_offset = thread_start_offset;
+        thread_offset < left_num * right_num * matrix_size.area();
+        thread_offset += ctb.group_dim().x * grid.group_dim().x
+    ) {
         auto l_array_idx = thread_offset / output_length_per_left_array;
         // Offset in the output for this left array
         // which corresponds to the offset in the right input data
@@ -136,6 +149,8 @@ __global__ void hadamard_n_to_m_over_output(
         auto l_offset = l_out_offset % array_length;
         out[thread_offset] = multiply_conjugate(left[l_array_idx * array_length + l_offset], right[l_out_offset]);
     }
+}
+
 }
 
 template<typename T>

@@ -12,6 +12,8 @@ namespace cg = cooperative_groups;
 
 namespace cross {
 
+namespace {
+
 /**
  * This kernel is a reimplementation of the original naive cross_corr kernel
  * The kernel receives reference subregions, each in row major order all stacked one after another
@@ -56,11 +58,11 @@ __global__ void cross_corr_naive_original(
     }
 
     // Position of the centre of the subregion
-    dsize2_t in_region_pos = { def_strip_x % search_size.x, def_strip_y };
+    dsize2_t in_region_pos{def_strip_x % search_size.x, def_strip_y};
     dsize_t ref_idx = region_idx % subregions_per_pic;
     dsize2_t half_size = (search_size - 1) / 2;
 
-    vec2<int> shift = {(int)in_region_pos.x - (int)half_size.x, (int)in_region_pos.y - (int)half_size.y};
+    vec2<int> shift{(int)in_region_pos.x - (int)half_size.x, (int)in_region_pos.y - (int)half_size.y};
 
     ref += ref_idx * subregion_size.area();
     deformed += region_idx * subregion_size.area();
@@ -98,6 +100,8 @@ __global__ void cross_corr_naive_original(
         deformed += subregions_per_pic * subregion_size.area();
         out += subregions_per_pic * search_size.area();
     }
+}
+
 }
 
 template<typename T, typename RES>

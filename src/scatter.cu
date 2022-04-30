@@ -12,10 +12,12 @@ namespace cg = cooperative_groups;
 
 namespace cross {
 
+namespace {
+
 template<typename T>
 __global__ void scatter(
-    const T* __restrict__ src,
-    T* __restrict__ dst,
+    const T *__restrict__ src,
+    T *__restrict__ dst,
     dsize2_t src_matrix_size,
     dsize_t src_num_matrices,
     dsize2_t dst_matrix_size,
@@ -43,6 +45,8 @@ __global__ void scatter(
 
         dst[dst_matrix_row_start + dst_pos.x + src_x] = data;
     }
+}
+
 }
 
 template<typename T>

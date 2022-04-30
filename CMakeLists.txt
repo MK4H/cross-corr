@@ -44,13 +44,14 @@ set(CUDA_SOURCES
         ${CMAKE_SOURCE_DIR}/src/naive_original.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle_n_to_m.cu
-        ${CMAKE_SOURCE_DIR}/src/naive_shuffle_n_to_m_orig.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle_multirow.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle_multileft.cu
         ${CMAKE_SOURCE_DIR}/src/naive_shuffle_multirow_multiright.cu
         ${CMAKE_SOURCE_DIR}/src/naive_warp_per_shift.cu
         ${CMAKE_SOURCE_DIR}/src/naive_block_per_shift.cu
         ${CMAKE_SOURCE_DIR}/src/scatter.cu
+        ${CMAKE_SOURCE_DIR}/src/naive_shuffle_n_to_m_orig.cu
+        ${CMAKE_SOURCE_DIR}/src/naive_shuffle_multileft_orig.cu
 )
 
 add_executable(cross ${CPP_SOURCES} ${CUDA_SOURCES})

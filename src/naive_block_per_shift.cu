@@ -11,12 +11,13 @@
 #include "cuda_helpers.cuh"
 #include "shared_mem.cuh"
 #include "row_distribution.cuh"
+#include "warp_size.hpp"
 
 namespace cg = cooperative_groups;
 
 namespace cross {
 
-constexpr unsigned int warp_size = 32;
+namespace {
 
 template<typename T, typename RES>
 __global__ void ccn_shift_per_block(
@@ -60,7 +61,7 @@ __global__ void ccn_shift_per_block(
     // so even though this is bottlenecked by the index computations,
     // it still runs much faster
     for (dsize_t i = ctb.thread_rank(); i < total_items; i += ctb.size()) {
-        dsize_t overlap_row =  i / overlap_size.x;
+        dsize_t overlap_row = i / overlap_size.x;
         dsize_t overlap_row_offset = i % overlap_size.x;
 
         dsize2_t right_idx = right_start + dsize2_t{overlap_row_offset, overlap_row};
@@ -98,6 +99,8 @@ __global__ void ccn_shift_per_block(
             out[block_out_pos.linear_idx(search_size.x)] = sum;
         }
     }
+}
+
 }
 
 template<typename T, typename RES>

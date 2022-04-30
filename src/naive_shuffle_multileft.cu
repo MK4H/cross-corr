@@ -14,12 +14,13 @@
 #include "shared_mem.cuh"
 
 #include "row_distribution.cuh"
+#include "warp_size.hpp"
 
 namespace cg = cooperative_groups;
 
 namespace cross {
 
-constexpr unsigned int warp_size = 32;
+namespace {
 
 /**
  * Arguments for the warp_shuffle_impl function.
@@ -54,10 +55,9 @@ struct warp_shuffle_impl_args {
         dsize2_t output_pos,
         dsize2_t matrix_size,
         dsize2_t search_size
-    )   : left(left), right(right), out(out), warp_right_start(warp_right_start),
-    warp_right_end(warp_right_end), warp_min_shift(warp_min_shift), warp_max_shift(warp_max_shift),
-    output_pos(output_pos), matrix_size(matrix_size), search_size(search_size)
-    {
+    ) : left(left), right(right), out(out), warp_right_start(warp_right_start),
+        warp_right_end(warp_right_end), warp_min_shift(warp_min_shift), warp_max_shift(warp_max_shift),
+        output_pos(output_pos), matrix_size(matrix_size), search_size(search_size) {
 
     }
 };
@@ -259,12 +259,18 @@ __device__ void startup(
                 ctb,
                 warp,
                 args,
-                args.warp_right_start.y ,
+                args.warp_right_start.y,
                 args.warp_min_shift.y + NUM_THREAD_SHIFTS - 1,
                 res
             );
         }
         startup<NUM_THREAD_SHIFTS + 1, MAX_NUM_THREAD_SHIFTS>(ctb, warp, args, res);
+    } else {
+        // Silence the unused parameter warning
+        (void)ctb;
+        (void)warp;
+        (void)args;
+        (void)res;
     }
 }
 
@@ -287,6 +293,12 @@ __device__ void wind_down(
             );
         }
         wind_down<NUM_THREAD_SHIFTS - 1, MAX_NUM_THREAD_SHIFTS>(ctb, warp, args, res);
+    } else {
+        // Silence the unused parameter warning
+        (void)ctb;
+        (void)warp;
+        (void)args;
+        (void)res;
     }
 }
 
@@ -369,6 +381,13 @@ __device__ void multileft_shuffle_impl_dispatch(
 ) {
     if constexpr(NUM_THREAD_SHIFTS == 0) {
         // Zero is valid, if the warp is completely outside the result matrix
+
+        // Silence the unused parameter warning
+        (void)ctb;
+        (void)warp;
+        (void)num_thread_shifts;
+        (void)args;
+        (void)res;
     } else {
         if (NUM_THREAD_SHIFTS == num_thread_shifts) {
             multileft_shuffle_impl<NUM_THREAD_SHIFTS, MAX_LEFT_ROWS, ATOMIC>(
@@ -429,26 +448,26 @@ __global__ void ccn_multileft_shuffle(
     cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
 
     // All warps of given block start at the same x, but each work on different row of output
-    dsize2_t thread0_out_pos = dsize2_t {
+    dsize2_t thread0_out_pos{
         ctb.group_index().x * ctb.group_dim().x,
         (ctb.group_index().y * ctb.group_dim().y + ctb.thread_index().y) * max_shifts_per_thread
     };
     dsize2_t last_warp_thread_out_pos = thread0_out_pos +
-            dsize2_t{warp.size() - 1, 0};
+                                        dsize2_t{warp.size() - 1, 0};
 
     // Position in the output matrix
     // This is unique for each thread, as each thread computes a single shift which
     // corresponds to a single output value
     dsize2_t output_pos = thread0_out_pos +
-            dsize2_t{warp.thread_rank(), 0};
+                          dsize2_t{warp.thread_rank(), 0};
 
     dsize2_t half_search_size = (search_size - 1) / 2;
 
     // Min of the shifts computed by the threads of the current warp
     // This will always be the shift computed by thread 0
     vec2<int> warp_min_shift = {
-            static_cast<int>(thread0_out_pos.x) - static_cast<int>(half_search_size.x),
-            static_cast<int>(thread0_out_pos.y) - static_cast<int>(half_search_size.y)
+        static_cast<int>(thread0_out_pos.x) - static_cast<int>(half_search_size.x),
+        static_cast<int>(thread0_out_pos.y) - static_cast<int>(half_search_size.y)
     };
 
     // Max of the shifts computed by the threads of the current warp
@@ -456,9 +475,11 @@ __global__ void ccn_multileft_shuffle(
     //
     // It is clamped into search size as matrix may not be of size divisible by warp_size
     vec2<int> warp_max_shift = {
-            static_cast<int>(min(last_warp_thread_out_pos.x, search_size.x - 1)) - static_cast<int>(half_search_size.x),
-            // max_right_rows - 1 because + max_right_rows is the min_shift of next warp
-            static_cast<int>(min(last_warp_thread_out_pos.y + max_shifts_per_thread - 1, search_size.y - 1)) - static_cast<int>(half_search_size.y)
+        static_cast<int>(min(last_warp_thread_out_pos.x, search_size.x - 1)) -
+        static_cast<int>(half_search_size.x),
+        // max_right_rows - 1 because + max_right_rows is the min_shift of next warp
+        static_cast<int>(min(last_warp_thread_out_pos.y + max_shifts_per_thread - 1, search_size.y - 1)) -
+        static_cast<int>(half_search_size.y)
     };
 
 
@@ -513,6 +534,7 @@ __global__ void ccn_multileft_shuffle(
 }
 
 constexpr dsize_t left_rows_limit = 4;
+
 template<dsize_t MAX_LEFT_ROWS, typename T, typename RES>
 __host__ void ccn_multileft_shuffle_dispatch(
     const T* __restrict__ left,
@@ -533,8 +555,9 @@ __host__ void ccn_multileft_shuffle_dispatch(
             );
 
             dsize_t block_size = num_threads.x * num_threads.y;
+            dsize_t shared_mem_size = block_size * max_shifts_per_thread * sizeof(RES);
 
-            ccn_multileft_shuffle<MAX_LEFT_ROWS><<<num_blocks, num_threads, block_size * max_shifts_per_thread * sizeof(RES)>>>(
+            ccn_multileft_shuffle<MAX_LEFT_ROWS><<<num_blocks, num_threads, shared_mem_size>>>(
                 left,
                 right,
                 out,
@@ -555,7 +578,7 @@ __host__ void ccn_multileft_shuffle_dispatch(
             );
         }
     } else {
-        // TODO: Solve the -Wunused-but-set-parameter warining
+        // TODO: Solve the -Wunused-but-set-parameter warning
         // Silence the confusing -Wunused-but-set-parameter warning
         // as we are not setting the parameters anywhere
         (void)left;
@@ -568,6 +591,8 @@ __host__ void ccn_multileft_shuffle_dispatch(
         (void)max_left_rows;
         assert(false);
     }
+}
+
 }
 
 template<typename T, typename RES>

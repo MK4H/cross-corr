@@ -13,12 +13,13 @@
 #include "bound_checked_loads.cuh"
 
 #include "row_distribution.cuh"
+#include "warp_size.hpp"
 
 namespace cg = cooperative_groups;
 
 namespace cross {
 
-constexpr unsigned int warp_size = 32;
+namespace {
 
 __device__ void get_matrix_group(
     dsize_t output_size,
@@ -79,10 +80,9 @@ struct warp_shuffle_impl_args {
         dsize2_t output_pos,
         dsize2_t matrix_size,
         dsize2_t search_size
-    )   : left(left), right(right), out(out), warp_right_start(warp_right_start),
-    warp_right_end(warp_right_end), warp_min_shift(warp_min_shift), output_pos(output_pos),
-    matrix_size(matrix_size), search_size(search_size)
-    {
+    ) : left(left), right(right), out(out), warp_right_start(warp_right_start),
+        warp_right_end(warp_right_end), warp_min_shift(warp_min_shift), output_pos(output_pos),
+        matrix_size(matrix_size), search_size(search_size) {
 
     }
 };
@@ -134,16 +134,16 @@ __device__ void warp_shuffle_impl(
 
         // Preload the first values from left matrix
         T thread_left_bottom = load_with_bounds_check(
-                left_row,
-                warp_x_left + warp.thread_rank(),
-                args.matrix_size.x
+            left_row,
+            warp_x_left + warp.thread_rank(),
+            args.matrix_size.x
         );
 
         for (
-                dsize_t warp_x_right = args.warp_right_start.x;
-                warp_x_right < args.warp_right_end.x;
-                warp_x_right += warp.size(), warp_x_left += warp.size()
-                ) {
+            dsize_t warp_x_right = args.warp_right_start.x;
+            warp_x_right < args.warp_right_end.x;
+            warp_x_right += warp.size(), warp_x_left += warp.size()
+        ) {
 
             // Load next warp_size values
             // Load 0 if out of bounds
@@ -203,6 +203,7 @@ __device__ void warp_shuffle_impl(
 }
 
 constexpr dsize_t max_num_right_matrices = 8;
+
 /**
  * This kernel first computes the range which should be
  * computed by the current warp in the left and right matrices
@@ -257,34 +258,34 @@ __global__ void ccn_warp_shuffle(
 
 
     // All warps of given block start at the same x, but each work on different row of output
-    dsize2_t thread0_out_pos = dsize2_t {
+    dsize2_t thread0_out_pos{
         output_x_offset,
         ctb.group_index().y * ctb.group_dim().y + ctb.thread_index().y
     };
     dsize2_t last_warp_thread_out_pos = thread0_out_pos +
-            dsize2_t{warp.size() - 1, 0};
+                                        dsize2_t{warp.size() - 1, 0};
 
     // Position in the output matrix
     // This is unique for each thread, as each thread computes a single shift which
     // corresponds to a single output value
     dsize2_t output_pos = thread0_out_pos +
-            dsize2_t{warp.thread_rank(), 0};
+                          dsize2_t{warp.thread_rank(), 0};
 
     dsize2_t half_search_size = (search_size - 1) / 2;
 
     // Min of the shifts computed by the threads of the current warp
     // This will always be the shift computed by thread 0
     vec2<int> warp_min_shift = {
-            static_cast<int>(thread0_out_pos.x) - static_cast<int>(half_search_size.x),
-            static_cast<int>(thread0_out_pos.y) - static_cast<int>(half_search_size.y)
+        static_cast<int>(thread0_out_pos.x) - static_cast<int>(half_search_size.x),
+        static_cast<int>(thread0_out_pos.y) - static_cast<int>(half_search_size.y)
     };
 
     // Max of the shifts computed by the threads of the current warp
     // This will always be the shift computed by thread 31
     // It is clamped into search size as matrix may not be of size divisible by warp_size
     vec2<int> warp_max_shift = {
-            static_cast<int>(min(last_warp_thread_out_pos.x, search_size.x)) - static_cast<int>(half_search_size.x),
-            static_cast<int>(min(last_warp_thread_out_pos.y, search_size.y)) - static_cast<int>(half_search_size.y)
+        static_cast<int>(min(last_warp_thread_out_pos.x, search_size.x)) - static_cast<int>(half_search_size.x),
+        static_cast<int>(min(last_warp_thread_out_pos.y, search_size.y)) - static_cast<int>(half_search_size.y)
     };
 
 
@@ -320,21 +321,29 @@ __global__ void ccn_warp_shuffle(
     );
 
     switch (thread_num_right_matrices) {
-        case 1: warp_shuffle_impl<1, false>(warp, args);
+        case 1:
+            warp_shuffle_impl<1, false>(warp, args);
             break;
-        case 2: warp_shuffle_impl<2, false>(warp, args);
+        case 2:
+            warp_shuffle_impl<2, false>(warp, args);
             break;
-        case 3: warp_shuffle_impl<3, false>(warp, args);
+        case 3:
+            warp_shuffle_impl<3, false>(warp, args);
             break;
-        case 4: warp_shuffle_impl<4, false>(warp, args);
+        case 4:
+            warp_shuffle_impl<4, false>(warp, args);
             break;
-        case 5: warp_shuffle_impl<5, false>(warp, args);
+        case 5:
+            warp_shuffle_impl<5, false>(warp, args);
             break;
-        case 6: warp_shuffle_impl<6, false>(warp, args);
+        case 6:
+            warp_shuffle_impl<6, false>(warp, args);
             break;
-        case 7: warp_shuffle_impl<7, false>(warp, args);
+        case 7:
+            warp_shuffle_impl<7, false>(warp, args);
             break;
-        case max_num_right_matrices: warp_shuffle_impl<max_num_right_matrices, false>(warp, args);
+        case max_num_right_matrices:
+            warp_shuffle_impl<max_num_right_matrices, false>(warp, args);
             break;
         default:
             assert(false);
@@ -399,7 +408,7 @@ __global__ void ccn_warp_shuffle_work_distribution(
     }
 
     // All warps of given block start at the same x, but each work on different row of output
-    dsize2_t thread0_out_pos = dsize2_t {
+    dsize2_t thread0_out_pos{
         warp_output_x_offset,
         work.output_row
     };
@@ -416,7 +425,7 @@ __global__ void ccn_warp_shuffle_work_distribution(
 
     // Min of the shifts computed by the threads of the current warp
     // This will always be the shift computed by thread 0
-    vec2<int> warp_min_shift = {
+    vec2<int> warp_min_shift{
         static_cast<int>(thread0_out_pos.x) - static_cast<int>(half_search_size.x),
         static_cast<int>(thread0_out_pos.y) - static_cast<int>(half_search_size.y)
     };
@@ -424,7 +433,7 @@ __global__ void ccn_warp_shuffle_work_distribution(
     // Max of the shifts computed by the threads of the current warp
     // This will always be the shift computed by thread 31
     // It is clamped into search size as matrix may not be of size divisible by warp_size
-    vec2<int> warp_max_shift = {
+    vec2<int> warp_max_shift{
         static_cast<int>(min(last_warp_thread_out_pos.x, search_size.x)) - static_cast<int>(half_search_size.x),
         static_cast<int>(min(last_warp_thread_out_pos.y, search_size.y)) - static_cast<int>(half_search_size.y)
     };
@@ -473,25 +482,35 @@ __global__ void ccn_warp_shuffle_work_distribution(
     );
 
     switch (thread_num_right_matrices) {
-        case 1: warp_shuffle_impl<1, true>(warp, args);
+        case 1:
+            warp_shuffle_impl<1, true>(warp, args);
             break;
-        case 2: warp_shuffle_impl<2, true>(warp, args);
+        case 2:
+            warp_shuffle_impl<2, true>(warp, args);
             break;
-        case 3: warp_shuffle_impl<3, true>(warp, args);
+        case 3:
+            warp_shuffle_impl<3, true>(warp, args);
             break;
-        case 4: warp_shuffle_impl<4, true>(warp, args);
+        case 4:
+            warp_shuffle_impl<4, true>(warp, args);
             break;
-        case 5: warp_shuffle_impl<5, true>(warp, args);
+        case 5:
+            warp_shuffle_impl<5, true>(warp, args);
             break;
-        case 6: warp_shuffle_impl<6, true>(warp, args);
+        case 6:
+            warp_shuffle_impl<6, true>(warp, args);
             break;
-        case 7: warp_shuffle_impl<7, true>(warp, args);
+        case 7:
+            warp_shuffle_impl<7, true>(warp, args);
             break;
-        case max_num_right_matrices: warp_shuffle_impl<max_num_right_matrices, true>(warp, args);
+        case max_num_right_matrices:
+            warp_shuffle_impl<max_num_right_matrices, true>(warp, args);
             break;
         default:
             assert(false);
     }
+}
+
 }
 
 template<typename T, typename RES>
@@ -510,7 +529,8 @@ void run_ccn_warp_shuffle(
     }
 
     if (right_matrices_per_thread == 0 || right_matrices_per_thread > max_num_right_matrices) {
-        throw std::runtime_error("Invalid number of right matrices per thread: "s +
+        throw std::runtime_error(
+            "Invalid number of right matrices per thread: "s +
             std::to_string(right_matrices_per_thread) +
             " [1-"s +
             std::to_string(max_num_right_matrices) +
@@ -525,18 +545,18 @@ void run_ccn_warp_shuffle(
 
 
     dim3 num_blocks(
-            blocks_per_matrix_group * num_matrix_groups,
-            div_up(search_size.y, num_threads.y)
+        blocks_per_matrix_group * num_matrix_groups,
+        div_up(search_size.y, num_threads.y)
     );
 
     ccn_warp_shuffle<<<num_blocks, num_threads>>>(
-            left,
-            right,
-            out,
-            matrix_size,
-            search_size,
-            num_right_matrices,
-            right_matrices_per_thread
+        left,
+        right,
+        out,
+        matrix_size,
+        search_size,
+        num_right_matrices,
+        right_matrices_per_thread
     );
 }
 

@@ -13,13 +13,14 @@
 #include "bound_checked_loads.cuh"
 
 #include "row_distribution.cuh"
+#include "warp_size.hpp"
 
 namespace cg = cooperative_groups;
 
 namespace cross::orig {
 
+namespace {
 
-constexpr unsigned int warp_size = 32;
 constexpr dsize_t max_num_left_matrices = 4;
 constexpr dsize_t max_num_right_matrices = 4;
 
@@ -34,9 +35,9 @@ constexpr dsize_t max_num_right_matrices = 4;
  */
 template<typename T, typename RES>
 struct warp_shuffle_impl_args {
-    const T *__restrict__ left;
-    const T *__restrict__ right;
-    RES *__restrict__ out;
+    const T* __restrict__ left;
+    const T* __restrict__ right;
+    RES* __restrict__ out;
     dsize2_t warp_right_start;
     dsize2_t warp_right_end;
     vec2<int> warp_min_shift;
@@ -46,9 +47,9 @@ struct warp_shuffle_impl_args {
     dsize_t num_right_matrices;
 
     __device__ warp_shuffle_impl_args(
-        const T *__restrict__ left,
-        const T *__restrict__ right,
-        RES *__restrict__ out,
+        const T* __restrict__ left,
+        const T* __restrict__ right,
+        RES* __restrict__ out,
         dsize2_t warp_right_start,
         dsize2_t warp_right_end,
         vec2<int> warp_min_shift,
@@ -65,9 +66,9 @@ struct warp_shuffle_impl_args {
 
 template<typename T, typename RES>
 __device__ warp_shuffle_impl_args<T, RES> create_warp_shuffle_impl_args(
-    const T *__restrict__ left,
-    const T *__restrict__ right,
-    RES *__restrict__ out,
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
     dsize2_t warp_right_start,
     dsize2_t warp_right_end,
     vec2<int> warp_min_shift,
@@ -92,8 +93,8 @@ __device__ warp_shuffle_impl_args<T, RES> create_warp_shuffle_impl_args(
 
 template<dsize_t NUM_LEFTS, dsize_t NUM_RIGHTS, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
 __device__ void warp_shuffle_impl(
-    const cg::thread_block_tile <WARP_SIZE> &warp,
-    const warp_shuffle_impl_args<T, RES> &args
+    const cg::thread_block_tile <WARP_SIZE>& warp,
+    const warp_shuffle_impl_args<T, RES>& args
 ) {
     // Compute the given shift for num_rights right matrices
     RES sum[NUM_LEFTS * NUM_RIGHTS];
@@ -107,8 +108,8 @@ __device__ void warp_shuffle_impl(
         dsize_t warp_y_left = warp_y_right + args.warp_min_shift.y;
 
         const dsize_t right_row_offset = warp_y_right * args.matrix_size.x;
-        const T *left_row = args.left + warp_y_left * args.matrix_size.x;
-        const T *right_row = args.right + right_row_offset;
+        const T* left_row = args.left + warp_y_left * args.matrix_size.x;
+        const T* right_row = args.right + right_row_offset;
 
         int warp_x_left = static_cast<int>(args.warp_right_start.x) + args.warp_min_shift.x;
 
@@ -201,7 +202,7 @@ __device__ void warp_shuffle_impl(
         for (dsize_t l = 0; l < NUM_LEFTS; ++l) {
             #pragma unroll
             for (dsize_t r = 0; r < NUM_RIGHTS; ++r) {
-                T *matrix = args.out + (l * args.num_right_matrices + r) * args.search_size.area();
+                T* matrix = args.out + (l * args.num_right_matrices + r) * args.search_size.area();
                 if (ATOMIC) {
                     atomicAdd(matrix + output_offset, sum[l * NUM_RIGHTS + r]);
                 } else {
@@ -215,11 +216,15 @@ __device__ void warp_shuffle_impl(
 // TODO: Is this correct?
 template<dsize_t NUM_LEFTS, dsize_t NUM_RIGHTS, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
 __device__ void warp_shuffle_impl_dispatch_num_rights(
-    const cg::thread_block_tile <WARP_SIZE> &warp,
+    const cg::thread_block_tile <WARP_SIZE>& warp,
     dsize_t thread_num_rights,
-    const warp_shuffle_impl_args<T, RES> &args
+    const warp_shuffle_impl_args<T, RES>& args
 ) {
     if constexpr(NUM_RIGHTS == 0) {
+        // Silence the unused parameter warning
+        (void)warp;
+        (void)thread_num_rights;
+        (void)args;
         assert(false);
     } else {
         if (NUM_RIGHTS == thread_num_rights) {
@@ -240,12 +245,17 @@ __device__ void warp_shuffle_impl_dispatch_num_rights(
 // TODO: Is this correct?
 template<dsize_t NUM_LEFTS, dsize_t NUM_RIGHTS, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
 __device__ void warp_shuffle_impl_dispatch_num_lefts(
-    const cg::thread_block_tile <WARP_SIZE> &warp,
+    const cg::thread_block_tile <WARP_SIZE>& warp,
     dsize_t thread_num_lefts,
     dsize_t thread_num_rights,
-    const warp_shuffle_impl_args<T, RES> &args
+    const warp_shuffle_impl_args<T, RES>& args
 ) {
     if constexpr(NUM_LEFTS == 0) {
+        // Silence the unused parameter warning
+        (void)warp;
+        (void)thread_num_lefts;
+        (void)thread_num_rights;
+        (void)args;
         assert(false);
     } else {
         if (NUM_LEFTS == thread_num_lefts) {
@@ -279,9 +289,9 @@ __device__ void warp_shuffle_impl_dispatch_num_lefts(
  */
 template<typename DIST, typename T, typename RES>
 __global__ void ccn_warp_shuffle_n_to_m_work_distribution(
-    const T *__restrict__ left,
-    const T *__restrict__ right,
-    RES *__restrict__ out,
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
     dsize_t num_left_matrices,
@@ -421,6 +431,7 @@ __global__ void ccn_warp_shuffle_n_to_m_work_distribution(
     );
 }
 
+}
 
 template<typename DIST, typename T, typename RES>
 void run_ccn_warp_shuffle_n_to_m_work_distribution(
