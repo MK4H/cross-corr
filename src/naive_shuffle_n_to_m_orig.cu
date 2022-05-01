@@ -474,7 +474,7 @@ void run_ccn_warp_shuffle_n_to_m_work_distribution(
     dsize_t num_workers = DIST::num_workers(max_rows_per_thread, matrix_size.y, search_size.y);
 
     // Each row of cuda block corresponds to a single warp for simplified code
-    constexpr dsize_t block_x_size = 32;
+    constexpr dsize_t block_x_size = warp_size;
 
     // There will be total of num_left_matrix_groups * num_right_matrix_groups matrix_groups
     dsize_t num_left_matrix_groups = div_up(num_left_matrices, left_matrices_per_thread);

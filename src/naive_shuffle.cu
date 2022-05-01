@@ -538,7 +538,7 @@ void run_ccn_warp_shuffle(
         );
     }
 
-    dim3 num_threads(32, cuda_rows_per_block);
+    dim3 num_threads(warp_size, cuda_rows_per_block);
 
     dsize_t num_matrix_groups = div_up(num_right_matrices, right_matrices_per_thread);
     dsize_t blocks_per_matrix_group = div_up(search_size.x, num_threads.x);
@@ -589,7 +589,7 @@ void run_ccn_warp_shuffle_work_distribution(
     dsize_t num_workers = DIST::num_workers(max_rows_per_thread, matrix_size.y, search_size.y);
 
     // Each row of cuda block corresponds to a single warp for simplified code
-    constexpr dsize_t block_x_size = 32;
+    constexpr dsize_t block_x_size = warp_size;
 
     dsize_t num_matrix_groups = div_up(num_right_matrices, right_matrices_per_thread);
     dsize_t blocks_per_matrix_group = div_up(search_size.x, block_x_size);

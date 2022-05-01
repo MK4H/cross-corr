@@ -7,6 +7,7 @@
 #include <cooperative_groups/reduce.h>
 
 #include "types.cuh"
+#include "warp_size.hpp"
 
 namespace cg = cooperative_groups;
 
@@ -86,7 +87,7 @@ public:
     // }
 
     template<bool STRIDED_LOAD>
-    __device__ size_type load_continuous(const cg::thread_block& ctb, const cg::thread_block_tile<32>& warp, const T* src, dsize_t size, dsize_t offset = 0) {
+    __device__ size_type load_continuous(const cg::thread_block& ctb, const cg::thread_block_tile<warp_size>& warp, const T* src, dsize_t size, dsize_t offset = 0) {
         if (STRIDED_LOAD) {
             load_continuous_chunk_strided_warps(ctb, src, size, offset);
         } else {
@@ -105,7 +106,7 @@ public:
      * @return
      */
     __device__ size_type load_continuous_chunk_continuous_warps(
-        const cg::thread_block_tile<32>& warp,
+        const cg::thread_block_tile<warp_size>& warp,
         const T* src,
         dsize_t size,
         dsize_t offset = 0
@@ -135,7 +136,7 @@ public:
     template<bool STRIDED_LOAD>
     __device__ size_type load_strided_chunks(
         const cg::thread_block& ctb,
-        const cg::thread_block_tile<32>& warp,
+        const cg::thread_block_tile<warp_size>& warp,
         const T* src,
         dsize_t chunk_size,
         dsize_t num_chunks,
@@ -162,7 +163,7 @@ public:
      * @return
      */
     __device__ size_type load_strided_chunks_continuous_warps(
-        const cg::thread_block_tile<32>& warp,
+        const cg::thread_block_tile<warp_size>& warp,
         const T* src,
         dsize_t chunk_size,
         dsize_t num_chunks,

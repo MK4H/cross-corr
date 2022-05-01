@@ -1248,6 +1248,7 @@ public:
     {
         block_y_size_ = args.value("block_y_size", 8);
         shifts_per_thread_ = args.value("shifts_per_thread", 4);
+        // TODO: Rename to left rows per iteration
         left_rows_per_thread_ = args.value("left_rows_per_thread", 3);
 
     }

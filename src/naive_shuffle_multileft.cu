@@ -557,7 +557,7 @@ __host__ void ccn_multileft_shuffle_dispatch(
 ) {
     if constexpr(MAX_LEFT_ROWS > 0) {
         if (MAX_LEFT_ROWS == max_left_rows) {
-            dim3 num_threads(32, cuda_rows_per_block);
+            dim3 num_threads(warp_size, cuda_rows_per_block);
             dim3 num_blocks(
                 div_up(search_size.x, num_threads.x),
                 div_up(search_size.y, num_threads.y * max_shifts_per_thread)

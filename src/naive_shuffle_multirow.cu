@@ -496,7 +496,7 @@ void run_ccn_multirow_shuffle(
         throw std::runtime_error("Too many rows per block: "s + std::to_string(cuda_rows_per_block) + " (max 32)");
     }
 
-    dim3 num_threads(32, cuda_rows_per_block);
+    dim3 num_threads(warp_size, cuda_rows_per_block);
     dim3 num_blocks(
             div_up(search_size.x, num_threads.x),
             div_up(search_size.y, num_threads.y * max_right_rows)

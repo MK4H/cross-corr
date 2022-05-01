@@ -898,7 +898,7 @@ void run_ccn_shift_per_warp(
         throw std::runtime_error("Too many shifts per block: "s + std::to_string(cuda_shifts_per_block) + " (max 32)");
     }
 
-    dim3 num_threads(32, cuda_shifts_per_block);
+    dim3 num_threads(warp_size, cuda_shifts_per_block);
     dim3 num_blocks(
         div_up(search_size.x, num_threads.y),
         search_size.y
@@ -929,7 +929,7 @@ void run_ccn_shift_per_warp_work_distribution(
 
     dsize_t num_workers = DIST::num_workers(max_rows_per_warp, matrix_size.y, search_size.y);
 
-    dim3 num_threads(32, cuda_shifts_per_block);
+    dim3 num_threads(warp_size, cuda_shifts_per_block);
     dim3 num_blocks(
         div_up(search_size.x, num_threads.y),
         num_workers
@@ -958,7 +958,7 @@ void run_ccn_shift_per_warp_simple_indexing(
         throw std::runtime_error("Too many shifts per block: "s + std::to_string(cuda_shifts_per_block) + " (max 32)");
     }
 
-    dim3 num_threads(32, cuda_shifts_per_block);
+    dim3 num_threads(warp_size, cuda_shifts_per_block);
     dim3 num_blocks(
         div_up(search_size.x, num_threads.y),
         search_size.y
@@ -991,7 +991,7 @@ void run_ccn_shift_per_warp_simple_indexing(
 //        throw std::runtime_error("Shared memory buffer must be large enough to contain at least a single row of input");
 //    }
 //
-//    dim3 num_threads(32, cuda_shifts_per_block);
+//    dim3 num_threads(warp_size, cuda_shifts_per_block);
 //    dim3 num_blocks(
 //        div_up(search_size.x, num_threads.y),
 //        search_size.y
@@ -1039,7 +1039,7 @@ void run_ccn_shift_per_warp_shared_mem_rows(
 
     dsize_t num_matrix_groups = div_up(num_right_matrices, right_matrices_per_block);
 
-    dim3 num_threads(32, shifts_per_cuda_block);
+    dim3 num_threads(warp_size, shifts_per_cuda_block);
     dim3 num_blocks(
         search_size.x * num_matrix_groups,
         div_up(search_size.y, num_threads.y)

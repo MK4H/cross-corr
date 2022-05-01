@@ -125,7 +125,7 @@ __device__ void compute_row_group(
         dsize_t warp_x_right = args.warp_right_start.x;
         warp_x_right < args.warp_right_end.x;
         warp_x_right += warp.size(), warp_x_left += warp.size()
-        ) {
+    ) {
 
         // Load next warp_size values
         // Load 0 if out of bounds
@@ -547,7 +547,7 @@ void run_ccn_multirow_multiright_shuffle(
         );
     }
 
-    dim3 num_threads(32, cuda_rows_per_block);
+    dim3 num_threads(warp_size, cuda_rows_per_block);
 
     dsize_t num_matrix_groups = div_up(num_right_matrices, right_matrices_per_thread);
     dsize_t blocks_per_matrix_group = div_up(search_size.x, num_threads.x);
