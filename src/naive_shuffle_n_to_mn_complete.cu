@@ -482,16 +482,14 @@ __device__ void n_to_mn_shuffle_impl_shifts_dispatch(
  * computed by the current warp in the left and right matrices
  * and then always loads 32 values
  */
-template<dsize_t LEFT_ROWS_PER_ITER, typename T, typename RES>
+template<dsize_t MAX_SHIFTS_PER_RIGHT_MATRIX, dsize_t MAX_RIGHT_MATRICES_PER_THREAD, dsize_t LEFT_ROWS_PER_ITER, typename T, typename RES>
 __global__ void ccn_n_to_mn_shuffle(
     const T* __restrict__ left,
     const T* __restrict__ right,
     RES* __restrict__ out,
     dsize2_t matrix_size,
     dsize2_t search_size,
-    dsize_t num_right_matrices,
-    dsize_t shifts_per_right_matrix,
-    dsize_t right_matrices_per_thread
+    dsize_t num_right_matrices
 ) {
     // Initialize by loading a warp worth of data from left matrix
     // as we will be iterating over the left matrix
@@ -522,12 +520,12 @@ __global__ void ccn_n_to_mn_shuffle(
     dsize_t matrix_group_block_offset = ctb.group_index().x % blocks_per_matrix_group;
 
     dsize_t output_x_offset = matrix_group_block_offset * warp_size;
-    dsize_t matrix_group_start_idx = matrix_group_idx * right_matrices_per_thread;
+    dsize_t matrix_group_start_idx = matrix_group_idx * MAX_RIGHT_MATRICES_PER_THREAD;
 
     // All warps of given block start at the same x, but each work on different row of output
     dsize2_t thread0_out_pos{
         output_x_offset,
-        (ctb.group_index().y * ctb.group_dim().y + ctb.thread_index().y) * shifts_per_right_matrix
+        (ctb.group_index().y * ctb.group_dim().y + ctb.thread_index().y) * MAX_SHIFTS_PER_RIGHT_MATRIX
     };
     dsize2_t last_warp_thread_out_pos = thread0_out_pos +
                                         dsize2_t{warp.size() - 1, 0};
@@ -555,7 +553,7 @@ __global__ void ccn_n_to_mn_shuffle(
         static_cast<int>(min(last_warp_thread_out_pos.x, search_size.x - 1)) -
         static_cast<int>(half_search_size.x),
         // max_right_rows - 1 because + max_right_rows is the min_shift of next warp
-        static_cast<int>(min(last_warp_thread_out_pos.y + shifts_per_right_matrix - 1, search_size.y - 1)) -
+        static_cast<int>(min(last_warp_thread_out_pos.y + MAX_SHIFTS_PER_RIGHT_MATRIX - 1, search_size.y - 1)) -
         static_cast<int>(half_search_size.y)
     };
 
@@ -580,7 +578,7 @@ __global__ void ccn_n_to_mn_shuffle(
     RES* res = shared_memory_proxy<RES>();
     for (
         dsize_t i = ctb.thread_rank();
-        i < shifts_per_right_matrix * right_matrices_per_thread * ctb.size();
+        i < MAX_SHIFTS_PER_RIGHT_MATRIX * MAX_RIGHT_MATRICES_PER_THREAD * ctb.size();
         i += ctb.size()
     ) {
         res[i] = 0;
@@ -591,7 +589,7 @@ __global__ void ccn_n_to_mn_shuffle(
     // +1 because max_shift is inclusive, it is the last shift computed by this warp
     // so to get the number of shifts with both sides inclusive, we need to add 1
     auto warp_num_shifts_per_right_mat = static_cast<dsize_t>(max(warp_max_shift.y - warp_min_shift.y + 1, 0));
-    dsize_t warp_num_right_matrices = min(num_right_matrices - matrix_group_start_idx, right_matrices_per_thread);
+    dsize_t warp_num_right_matrices = min(num_right_matrices - matrix_group_start_idx, MAX_RIGHT_MATRICES_PER_THREAD);
 
     auto args = create_warp_shuffle_impl_args(
         left,
@@ -606,7 +604,7 @@ __global__ void ccn_n_to_mn_shuffle(
         search_size
     );
 
-    n_to_mn_shuffle_impl_shifts_dispatch<shifts_per_thread_per_right_matrix_limit, right_matrices_per_thread_limit, LEFT_ROWS_PER_ITER, false>(
+    n_to_mn_shuffle_impl_shifts_dispatch<MAX_SHIFTS_PER_RIGHT_MATRIX, MAX_RIGHT_MATRICES_PER_THREAD, LEFT_ROWS_PER_ITER, false>(
         ctb,
         warp,
         warp_num_shifts_per_right_mat,
@@ -616,8 +614,124 @@ __global__ void ccn_n_to_mn_shuffle(
     );
 }
 
-template<dsize_t LEFT_ROWS_PER_ITER, typename T, typename RES>
-__host__ void ccn_n_to_mn_shuffle_dispatch(
+template<dsize_t MAX_SHIFTS_PER_RIGHT_MATRIX, dsize_t MAX_RIGHT_MATRICES_PER_THREAD, dsize_t LEFT_ROWS_PER_ITER, typename T, typename RES>
+__host__ void ccn_n_to_mn_shuffle_left_rows_dispatch(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t num_right_matrices,
+    dsize_t warps_per_thread_block,
+    dsize_t left_rows_per_iteration
+) {
+    if constexpr(LEFT_ROWS_PER_ITER > 0) {
+        if (LEFT_ROWS_PER_ITER == left_rows_per_iteration) {
+            dim3 num_threads(warp_size, warps_per_thread_block);
+
+            dsize_t num_matrix_groups = div_up(num_right_matrices, MAX_RIGHT_MATRICES_PER_THREAD);
+            dsize_t blocks_per_matrix_group = div_up(search_size.x, num_threads.x);
+
+            dim3 num_blocks(
+                blocks_per_matrix_group * num_matrix_groups,
+                div_up(search_size.y, num_threads.y * MAX_SHIFTS_PER_RIGHT_MATRIX)
+            );
+
+            dsize_t block_size = num_threads.x * num_threads.y;
+            dsize_t shared_mem_size = block_size * MAX_SHIFTS_PER_RIGHT_MATRIX * MAX_RIGHT_MATRICES_PER_THREAD * sizeof(RES);
+
+            ccn_n_to_mn_shuffle<MAX_SHIFTS_PER_RIGHT_MATRIX, MAX_RIGHT_MATRICES_PER_THREAD, LEFT_ROWS_PER_ITER><<<num_blocks, num_threads, shared_mem_size>>>(
+                left,
+                right,
+                out,
+                matrix_size,
+                search_size,
+                num_right_matrices
+            );
+        } else {
+            ccn_n_to_mn_shuffle_left_rows_dispatch<MAX_SHIFTS_PER_RIGHT_MATRIX, MAX_RIGHT_MATRICES_PER_THREAD, LEFT_ROWS_PER_ITER - 1>(
+                left,
+                right,
+                out,
+                matrix_size,
+                search_size,
+                num_right_matrices,
+                warps_per_thread_block,
+                left_rows_per_iteration
+            );
+        }
+    } else {
+        // TODO: Solve the -Wunused-but-set-parameter warning
+        // Silence the confusing -Wunused-but-set-parameter warning
+        // as we are not setting the parameters anywhere
+        (void)left;
+        (void)right;
+        (void)out;
+        (void)matrix_size;
+        (void)search_size;
+        (void)num_right_matrices;
+        (void)warps_per_thread_block;
+        (void)left_rows_per_iteration;
+        assert(false);
+    }
+}
+
+template<dsize_t MAX_SHIFTS_PER_RIGHT_MATRIX, dsize_t MAX_RIGHT_MATRICES_PER_THREAD, dsize_t LEFT_ROWS_PER_ITER, typename T, typename RES>
+__host__ void ccn_n_to_mn_shuffle_right_mats_dispatch(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t num_right_matrices,
+    dsize_t warps_per_thread_block,
+    dsize_t right_matrices_per_thread,
+    dsize_t left_rows_per_iteration
+) {
+    if constexpr(MAX_RIGHT_MATRICES_PER_THREAD > 0) {
+        if (MAX_RIGHT_MATRICES_PER_THREAD == right_matrices_per_thread) {
+            ccn_n_to_mn_shuffle_left_rows_dispatch<MAX_SHIFTS_PER_RIGHT_MATRIX, MAX_RIGHT_MATRICES_PER_THREAD, LEFT_ROWS_PER_ITER>(
+                left,
+                right,
+                out,
+                matrix_size,
+                search_size,
+                num_right_matrices,
+                warps_per_thread_block,
+                left_rows_per_iteration
+            );
+        } else {
+            ccn_n_to_mn_shuffle_right_mats_dispatch<MAX_SHIFTS_PER_RIGHT_MATRIX, MAX_RIGHT_MATRICES_PER_THREAD - 1, LEFT_ROWS_PER_ITER>(
+                left,
+                right,
+                out,
+                matrix_size,
+                search_size,
+                num_right_matrices,
+                warps_per_thread_block,
+                right_matrices_per_thread,
+                left_rows_per_iteration
+            );
+        }
+    } else {
+        // TODO: Solve the -Wunused-but-set-parameter warning
+        // Silence the confusing -Wunused-but-set-parameter warning
+        // as we are not setting the parameters anywhere
+        (void)left;
+        (void)right;
+        (void)out;
+        (void)matrix_size;
+        (void)search_size;
+        (void)num_right_matrices;
+        (void)warps_per_thread_block;
+        (void)right_matrices_per_thread;
+        (void)left_rows_per_iteration;
+        assert(false);
+    }
+}
+
+template<dsize_t MAX_SHIFTS_PER_RIGHT_MATRIX, dsize_t MAX_RIGHT_MATRICES_PER_THREAD, dsize_t LEFT_ROWS_PER_ITER, typename T, typename RES>
+__host__ void ccn_n_to_mn_shuffle_shifts_dispatch(
     const T* __restrict__ left,
     const T* __restrict__ right,
     RES* __restrict__ out,
@@ -629,33 +743,21 @@ __host__ void ccn_n_to_mn_shuffle_dispatch(
     dsize_t right_matrices_per_thread,
     dsize_t left_rows_per_iteration
 ) {
-    if constexpr(LEFT_ROWS_PER_ITER > 0) {
-        if (LEFT_ROWS_PER_ITER == left_rows_per_iteration) {
-            dim3 num_threads(warp_size, warps_per_thread_block);
-
-            dsize_t num_matrix_groups = div_up(num_right_matrices, right_matrices_per_thread);
-            dsize_t blocks_per_matrix_group = div_up(search_size.x, num_threads.x);
-
-            dim3 num_blocks(
-                blocks_per_matrix_group * num_matrix_groups,
-                div_up(search_size.y, num_threads.y * shifts_per_thread_right_matrix)
-            );
-
-            dsize_t block_size = num_threads.x * num_threads.y;
-            dsize_t shared_mem_size = block_size * shifts_per_thread_right_matrix * right_matrices_per_thread * sizeof(RES);
-
-            ccn_n_to_mn_shuffle<LEFT_ROWS_PER_ITER><<<num_blocks, num_threads, shared_mem_size>>>(
+    if constexpr(MAX_SHIFTS_PER_RIGHT_MATRIX > 0) {
+        if (MAX_SHIFTS_PER_RIGHT_MATRIX == shifts_per_thread_right_matrix) {
+            ccn_n_to_mn_shuffle_right_mats_dispatch<MAX_SHIFTS_PER_RIGHT_MATRIX, MAX_RIGHT_MATRICES_PER_THREAD, LEFT_ROWS_PER_ITER>(
                 left,
                 right,
                 out,
                 matrix_size,
                 search_size,
                 num_right_matrices,
-                shifts_per_thread_right_matrix,
-                right_matrices_per_thread
+                warps_per_thread_block,
+                right_matrices_per_thread,
+                left_rows_per_iteration
             );
         } else {
-            ccn_n_to_mn_shuffle_dispatch<LEFT_ROWS_PER_ITER - 1>(
+            ccn_n_to_mn_shuffle_shifts_dispatch<MAX_SHIFTS_PER_RIGHT_MATRIX - 1, MAX_RIGHT_MATRICES_PER_THREAD, LEFT_ROWS_PER_ITER>(
                 left,
                 right,
                 out,
@@ -733,7 +835,7 @@ void run_ccn_n_to_mn_shuffle(
         );
     }
 
-    ccn_n_to_mn_shuffle_dispatch<left_rows_per_iteration_limit>(
+    ccn_n_to_mn_shuffle_shifts_dispatch<shifts_per_thread_per_right_matrix_limit, right_matrices_per_thread_limit, left_rows_per_iteration_limit>(
         left,
         right,
         out,
