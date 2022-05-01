@@ -715,101 +715,10 @@ std::vector<std::string> naive_shift_per_warp_simple_indexing_one_to_one<T, BENC
 };
 
 
-//template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
-//class naive_shift_per_warp_shared_mem_one_to_one: public one_to_one<T, BENCH_TYPE, ALLOC> {
-//public:
-//    explicit naive_shift_per_warp_shared_mem_one_to_one(const json& args, std::chrono::nanoseconds min_measured_time)
-//        :one_to_one<T, BENCH_TYPE, ALLOC>(false, labels.size(), min_measured_time), ref_(), target_(), result_()
-//    {
-//        shifts_per_block_ = args.value("shifts_per_block", 8);
-//        shared_mem_buffer_rows_ = args.value("shared_mem_buffer_rows", 4);
-//    }
-//
-//    const data_array<T, ALLOC>& refs() const override {
-//        return ref_;
-//    }
-//
-//    const data_array<T, ALLOC>& targets() const override {
-//        return target_;
-//    }
-//
-//    const data_array<T, ALLOC>& results() const override {
-//        return result_;
-//    }
-//
-//    std::vector<std::pair<std::string, std::string>> additional_properties() const override {
-//        return std::vector<std::pair<std::string, std::string>>{
-//            std::make_pair("shifts_per_block", std::to_string(shifts_per_block_)),
-//            std::make_pair("shared_mem_buffer_rows", std::to_string(shared_mem_buffer_rows_))
-//        };
-//    }
-//
-//protected:
-//    void load_impl(const std::filesystem::path& ref_path, const std::filesystem::path& target_path) override {
-//        ref_ = load_matrix_from_csv<T, no_padding, ALLOC>(ref_path);
-//        target_ = load_matrix_from_csv<T, no_padding, ALLOC>(target_path);
-//
-//        this->check_matrices_same_size(ref_, target_);
-//    }
-//
-//    void prepare_impl() override {
-//        result_ = data_array<T, ALLOC>{ref_.matrix_size() + target_.matrix_size() - 1, 1};
-//
-//        cuda_malloc(&d_ref_, ref_.size());
-//        cuda_malloc(&d_target_, target_.size());
-//        cuda_malloc(&d_result_, result_.size());
-//    }
-//
-//    void transfer_impl() override {
-//        cuda_memcpy_to_device(d_ref_, ref_);
-//        cuda_memcpy_to_device(d_target_, target_);
-//    }
-//
-//    void run_impl() override {
-//        CUDA_MEASURE(0, BENCH_TYPE, this->sw_,
-//                     run_ccn_shift_per_warp_shared_mem(
-//                         d_ref_,
-//                         d_target_,
-//                         d_result_,
-//                         target_.matrix_size(),
-//                         result_.matrix_size(),
-//                         shifts_per_block_,
-//                         shared_mem_buffer_rows_ * target_.matrix_size().x
-//                     )
-//        );
-//    }
-//
-//    void finalize_impl() override {
-//        cuda_memcpy_from_device(result_, d_result_);
-//    }
-//
-//
-//private:
-//
-//    static std::vector<std::string> labels;
-//
-//    data_array<T, ALLOC> ref_;
-//    data_array<T, ALLOC> target_;
-//
-//    data_array<T, ALLOC> result_;
-//
-//    T* d_ref_;
-//    T* d_target_;
-//    T* d_result_;
-//
-//    dsize_t shifts_per_block_;
-//    dsize_t shared_mem_buffer_rows_;
-//};
-//
-//template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC>
-//std::vector<std::string> naive_shift_per_warp_shared_mem_one_to_one<T, BENCH_TYPE, ALLOC>::labels{
-//    "Kernel"
-//};
-
 template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
-class naive_shift_per_warp_shared_mem_rows_one_to_one: public one_to_one<T, BENCH_TYPE, ALLOC> {
+class naive_shift_per_warp_shared_mem_one_to_one: public one_to_one<T, BENCH_TYPE, ALLOC> {
 public:
-    explicit naive_shift_per_warp_shared_mem_rows_one_to_one(const json& args, std::chrono::nanoseconds min_measured_time)
+    explicit naive_shift_per_warp_shared_mem_one_to_one(const json& args, std::chrono::nanoseconds min_measured_time)
         :one_to_one<T, BENCH_TYPE, ALLOC>(false, labels.size(), min_measured_time), ref_(), target_(), result_()
     {
         // These arguments DO NOT WORK with DEBUG build, as unoptimized kernel requires too many registers
@@ -819,6 +728,7 @@ public:
         shared_mem_row_size_ = args.value(SHARED_MEM_ROW_SIZE_ARG, 128);
         shared_mem_rows_ = args.value(SHARED_MEM_ROWS_ARG, shifts_per_block_);
         strided_load_ = args.value(STRIDED_LOAD_ARG, true);
+        column_group_per_block_ = args.value(COLUMN_GROUP_PER_BLOCK_ARG, false);
 
         if (shared_mem_rows_ == 0) {
             shared_mem_rows_ = shifts_per_block_;
@@ -853,7 +763,8 @@ public:
             std::make_pair(SHIFTS_PER_BLOCK_ARG, std::to_string(shifts_per_block_)),
             std::make_pair(SHARED_MEM_ROW_SIZE_ARG, std::to_string(shared_mem_row_size_)),
             std::make_pair(SHARED_MEM_ROWS_ARG, std::to_string(shared_mem_rows_)),
-            std::make_pair(STRIDED_LOAD_ARG, std::to_string(strided_load_))
+            std::make_pair(STRIDED_LOAD_ARG, std::to_string(strided_load_)),
+            std::make_pair(COLUMN_GROUP_PER_BLOCK_ARG, std::to_string(column_group_per_block_))
         };
     }
 
@@ -880,7 +791,7 @@ protected:
 
     void run_impl() override {
         CUDA_ADAPTIVE_MEASURE(0, this->measure_alg(), this->sw_,
-                     run_ccn_shift_per_warp_shared_mem_rows(
+                     run_ccn_shift_per_warp_shared_mem(
                          d_ref_,
                          d_target_,
                          d_result_,
@@ -891,7 +802,8 @@ protected:
                          shared_mem_row_size_,
                          shared_mem_rows_,
                          1,
-                         strided_load_
+                         strided_load_,
+                         column_group_per_block_
                      )
         );
     }
@@ -918,6 +830,7 @@ private:
     inline static const std::string SHARED_MEM_ROW_SIZE_ARG = "shared_mem_row_size";
     inline static const std::string SHARED_MEM_ROWS_ARG = "shared_mem_rows";
     inline static const std::string STRIDED_LOAD_ARG = "strided_load";
+    inline static const std::string COLUMN_GROUP_PER_BLOCK_ARG = "column_group_per_block";
 
     data_array<T, ALLOC> ref_;
     data_array<T, ALLOC> target_;
@@ -932,10 +845,11 @@ private:
     dsize_t shared_mem_row_size_;
     dsize_t shared_mem_rows_;
     bool strided_load_;
+    bool column_group_per_block_;
 };
 
 template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC>
-std::vector<std::string> naive_shift_per_warp_shared_mem_rows_one_to_one<T, BENCH_TYPE, ALLOC>::labels{
+std::vector<std::string> naive_shift_per_warp_shared_mem_one_to_one<T, BENCH_TYPE, ALLOC>::labels{
     "Kernel"
 };
 

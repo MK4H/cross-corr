@@ -89,9 +89,9 @@ public:
     template<bool STRIDED_LOAD>
     __device__ size_type load_continuous(const cg::thread_block& ctb, const cg::thread_block_tile<warp_size>& warp, const T* src, dsize_t size, dsize_t offset = 0) {
         if (STRIDED_LOAD) {
-            load_continuous_chunk_strided_warps(ctb, src, size, offset);
+            return load_continuous_chunk_strided_warps(ctb, src, size, offset);
         } else {
-            load_continuous_chunk_continuous_warps(warp, src, size, offset);
+            return load_continuous_chunk_continuous_warps(warp, src, size, offset);
         }
     }
 

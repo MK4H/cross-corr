@@ -68,12 +68,13 @@ benchmark:
             rows_per_warp: [1, 3, 5, 10, 20, 32, 64]
             distribution_type: ["none", "rectangle", "triangle"]
 
-        - name: nai_shift_per_warp_shared_mem_rows
-          algorithm: nai_shift_per_warp_shared_mem_rows_one_to_one
+        - name: nai_shift_per_warp_shared_mem
+          algorithm: nai_shift_per_warp_shared_mem_one_to_one
           args:
             shifts_per_block: [8, 9, 16, 32]
             shared_mem_row_size: [32, 64, 128, 256]
             strided_load: [true, false]
+            column_group_per_block: [true, false]
 
         # The FFT algs have high max divergence for small values
         # but mean divergence is good
@@ -143,12 +144,13 @@ benchmark:
             right_rows_per_thread: [1, 2, 3, 4]
             right_matrices_per_thread: [1, 2, 3, 4]
 
-        - name: nai_shift_per_warp_shared_mem_rows
-          algorithm: nai_shift_per_warp_shared_mem_rows_one_to_many
+        - name: nai_shift_per_warp_shared_mem
+          algorithm: nai_shift_per_warp_shared_mem_one_to_many
           args:
             shifts_per_block: [8, 9, 16, 32]
             shared_mem_row_size: [32, 64, 128, 256]
             strided_load: [true, false]
+            column_group_per_block: [true, false]
             right_matrices_per_block: [1, 2, 3, 4]
 
         # The FFT algs have high max divergence for small values

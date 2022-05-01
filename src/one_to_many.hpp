@@ -613,15 +613,16 @@ std::vector<std::string> naive_shuffle_full_one_to_many<T, BENCH_TYPE, ALLOC>::l
 };
 
 template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC = std::allocator<T>>
-class naive_shift_per_warp_shared_mem_rows_one_to_many: public one_to_many<T, BENCH_TYPE, ALLOC> {
+class naive_shift_per_warp_shared_mem_one_to_many: public one_to_many<T, BENCH_TYPE, ALLOC> {
 public:
-    explicit naive_shift_per_warp_shared_mem_rows_one_to_many(const json& args, std::chrono::nanoseconds min_measured_time)
+    explicit naive_shift_per_warp_shared_mem_one_to_many(const json& args, std::chrono::nanoseconds min_measured_time)
         :one_to_many<T, BENCH_TYPE, ALLOC>(false, labels.size(), min_measured_time), ref_(), targets_(), results_()
     {
         shifts_per_block_ = args.value(SHIFTS_PER_BLOCK_ARG, 8);
         shared_mem_row_size_ = args.value(SHARED_MEM_ROW_SIZE_ARG, 32);
         shared_mem_rows_ = args.value(SHARED_MEM_ROWS_ARG, shifts_per_block_);
         strided_load_ = args.value(STRIDED_LOAD_ARG, true);
+        column_group_per_block_ = args.value(COLUMN_GROUP_PER_BLOCK_ARG, false);
         right_matrices_per_block_ = args.value(RIGHT_MATRICES_PER_BLOCK_ARG, 8);
 
         if (shared_mem_rows_ == 0) {
@@ -658,6 +659,7 @@ public:
             std::make_pair(SHARED_MEM_ROW_SIZE_ARG, std::to_string(shared_mem_row_size_)),
             std::make_pair(SHARED_MEM_ROWS_ARG, std::to_string(shared_mem_rows_)),
             std::make_pair(STRIDED_LOAD_ARG, std::to_string(strided_load_)),
+            std::make_pair(COLUMN_GROUP_PER_BLOCK_ARG, std::to_string(column_group_per_block_)),
             std::make_pair(RIGHT_MATRICES_PER_BLOCK_ARG, std::to_string(right_matrices_per_block_))
         };
     }
@@ -676,6 +678,11 @@ protected:
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_targets_, targets_.size());
         cuda_malloc(&d_results_, results_.size());
+
+        if (column_group_per_block_) {
+            // Need to zero out as work distribution uses atomicAdd on the results matrix
+            cuda_memset(d_results_, 0, results_.size());
+        }
     }
 
     void transfer_impl() override {
@@ -685,7 +692,7 @@ protected:
 
     void run_impl() override {
         CUDA_ADAPTIVE_MEASURE(0, this->measure_alg(), this->sw_,
-                     run_ccn_shift_per_warp_shared_mem_rows(
+                     run_ccn_shift_per_warp_shared_mem(
                          d_ref_,
                          d_targets_,
                          d_results_,
@@ -696,7 +703,8 @@ protected:
                          shared_mem_row_size_,
                          shared_mem_rows_,
                          right_matrices_per_block_,
-                         strided_load_
+                         strided_load_,
+                         column_group_per_block_
                      )
         );
     }
@@ -723,6 +731,7 @@ private:
     inline static const std::string SHARED_MEM_ROW_SIZE_ARG = "shared_mem_row_size";
     inline static const std::string SHARED_MEM_ROWS_ARG = "shared_mem_rows";
     inline static const std::string STRIDED_LOAD_ARG = "strided_load";
+    inline static const std::string COLUMN_GROUP_PER_BLOCK_ARG = "column_group_per_block";
     inline static const std::string RIGHT_MATRICES_PER_BLOCK_ARG = "right_matrices_per_block";
 
     data_array<T, ALLOC> ref_;
@@ -739,10 +748,11 @@ private:
     dsize_t shared_mem_rows_;
     dsize_t right_matrices_per_block_;
     bool strided_load_;
+    bool column_group_per_block_;
 };
 
 template<typename T, BenchmarkType BENCH_TYPE, typename ALLOC>
-std::vector<std::string> naive_shift_per_warp_shared_mem_rows_one_to_many<T, BENCH_TYPE, ALLOC>::labels{
+std::vector<std::string> naive_shift_per_warp_shared_mem_one_to_many<T, BENCH_TYPE, ALLOC>::labels{
     "Kernel"
 };
 

@@ -131,7 +131,7 @@ void run_ccn_warp_shuffle_work_distribution(
 //);
 
 template<typename T, typename RES>
-void run_ccn_shift_per_warp_shared_mem_rows(
+void run_ccn_shift_per_warp_shared_mem(
     const T* __restrict__ left,
     const T* __restrict__ right,
     RES* __restrict__ out,
@@ -142,7 +142,8 @@ void run_ccn_shift_per_warp_shared_mem_rows(
     dsize_t shared_mem_row_size,
     dsize_t shared_mem_rows,
     dsize_t right_matrices_per_block,
-    bool strided_load
+    bool strided_load,
+    bool column_group_per_block
 );
 
 template<typename DIST, typename T, typename RES>

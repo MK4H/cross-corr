@@ -21,6 +21,8 @@ namespace cross {
 
 namespace {
 
+constexpr dsize_t max_num_right_matrices = 8;
+
 /**
  *
  * @tparam T
@@ -154,7 +156,7 @@ __device__ shared_mem_rows_impl_args<T, RES> create_shared_mem_rows_impl_args(
     );
 }
 
-template<dsize_t NUM_RIGHT, bool STRIDED_LOAD, typename T, typename RES>
+template<dsize_t NUM_RIGHT, bool STRIDED_LOAD, bool ATOMIC, typename T, typename RES>
 __device__ void shared_mem_rows_impl(
     const cg::thread_block& ctb,
     const cg::thread_block_tile<warp_size>& warp,
@@ -209,7 +211,7 @@ __device__ void shared_mem_rows_impl(
         dsize_t iter_block_right_start_x = args.block_right_start.x;
         iter_block_right_start_x < args.block_right_end.x;
         iter_block_right_start_x += args.shared_mem_row_size
-        ) {
+    ) {
 
         dsize_t row_size = min(args.shared_mem_row_size, args.block_right_end.x - iter_block_right_start_x);
         dsize_t stride = args.matrix_size.x - row_size;
@@ -243,7 +245,7 @@ __device__ void shared_mem_rows_impl(
             dsize_t right_buffer_start_row = args.block_right_start.y;
             right_buffer_start_row < args.block_right_end.y;
             right_buffer_start_row += args.shared_mem_rows, left_buffer_start_row += args.shared_mem_rows
-            ) {
+        ) {
             dsize2_t left_load_start{
                 block_left_x_start,
                 // The first preload_size rows are already in the bottom buffer
@@ -330,13 +332,47 @@ __device__ void shared_mem_rows_impl(
             auto result = cg::reduce(warp, sum[i], cg::plus<RES>());
             if (warp.thread_rank() == 0) {
                 RES* out_matrix = args.out + i * args.search_size.area();
-                out_matrix[output_offset] = result;
+                if constexpr(ATOMIC) {
+                    atomicAdd(out_matrix + output_offset, result);
+                } else {
+                    out_matrix[output_offset] = result;
+                }
             }
         }
     }
 }
 
-constexpr dsize_t max_num_right_matrices = 8;
+template<dsize_t NUM_RIGHT, bool STRIDED_LOAD, bool ATOMIC, typename T, typename RES>
+__device__ void shared_mem_rows_impl_dispatch(
+    const cg::thread_block& ctb,
+    const cg::thread_block_tile<warp_size>& warp,
+    dsize_t right_matrices_per_block,
+    shared_mem_rows_impl_args<T, RES> args
+) {
+    if constexpr(NUM_RIGHT == 0) {
+        // Silence the unused parameter warning
+        (void)ctb;
+        (void)warp;
+        (void)right_matrices_per_block;
+        (void)args;
+        assert(false);
+    } else {
+        if (NUM_RIGHT == right_matrices_per_block) {
+            shared_mem_rows_impl<NUM_RIGHT, STRIDED_LOAD, ATOMIC>(
+                ctb,
+                warp,
+                args
+            );
+        } else {
+            shared_mem_rows_impl_dispatch<NUM_RIGHT - 1, STRIDED_LOAD, ATOMIC>(
+                ctb,
+                warp,
+                right_matrices_per_block,
+                args
+            );
+        }
+    }
+}
 
 /**
  * In this implementation, the warps in the given block
@@ -346,9 +382,6 @@ constexpr dsize_t max_num_right_matrices = 8;
  * to bank conflicts.
  *
  * TODO: This does not work with shared_mem_rows < shift_per_block
- * TODO: Add version which iterates through all right matrices with the single left matrix buffer
- *  which will need to store per thread sums in shared memory using atomic instructions
- *
  * @tparam T
  * @tparam RES
  * @param left
@@ -359,7 +392,7 @@ constexpr dsize_t max_num_right_matrices = 8;
  * @param shared_mem_buffer_size
  */
 template<bool STRIDED_LOAD, typename T, typename RES>
-__global__ void ccn_shift_per_warp_shared_mem_rows(
+__global__ void ccn_shift_per_warp_shared_mem(
     const T* __restrict__ left,
     const T* __restrict__ right,
     RES* __restrict__ out,
@@ -370,6 +403,7 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
     dsize_t shared_mem_rows,
     dsize_t right_matrices_per_block
 ) {
+    cg::grid_group grid = cg::this_grid();
     cg::thread_block ctb = cg::this_thread_block();
     cg::thread_block_tile<warp_size> warp = cg::tiled_partition<warp_size>(ctb);
 
@@ -407,8 +441,6 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
             static_cast<int>(search_size.y)
         ) -
         static_cast<int>(half_search_size.y);
-
-    // Block is reading submatrices from right sequentially
     dsize2_t block_right_start(
         max(0, -block_x_shift),
         max(0, -block_max_y_shift)
@@ -418,6 +450,17 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
         min(matrix_size.x - block_x_shift, matrix_size.x),
         min(matrix_size.y - block_min_y_shift, matrix_size.y)
     );
+
+    if (grid.group_dim().z != 1) {
+        dsize_t assigned_column_group = ctb.group_index().z;
+
+        block_right_start.x += assigned_column_group * shared_mem_row_size;
+        block_right_end.x = min(block_right_start.x + shared_mem_row_size, block_right_end.x);
+
+        if (block_right_start.x >= block_right_end.x) {
+            return;
+        }
+    }
 
     dsize2_t warp_out_pos{
         output_x_offset,
@@ -439,33 +482,20 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
         warp_out_pos
     );
 
-    switch (block_num_right_matrices) {
-        case 1:
-            shared_mem_rows_impl<1, STRIDED_LOAD>(ctb, warp, args);
-            break;
-        case 2:
-            shared_mem_rows_impl<2, STRIDED_LOAD>(ctb, warp, args);
-            break;
-        case 3:
-            shared_mem_rows_impl<3, STRIDED_LOAD>(ctb, warp, args);
-            break;
-        case 4:
-            shared_mem_rows_impl<4, STRIDED_LOAD>(ctb, warp, args);
-            break;
-        case 5:
-            shared_mem_rows_impl<5, STRIDED_LOAD>(ctb, warp, args);
-            break;
-        case 6:
-            shared_mem_rows_impl<6, STRIDED_LOAD>(ctb, warp, args);
-            break;
-        case 7:
-            shared_mem_rows_impl<7, STRIDED_LOAD>(ctb, warp, args);
-            break;
-        case max_num_right_matrices:
-            shared_mem_rows_impl<max_num_right_matrices, STRIDED_LOAD>(ctb, warp, args);
-            break;
-        default:
-            assert(false);
+    if (grid.group_dim().z != 1) {
+        shared_mem_rows_impl_dispatch<max_num_right_matrices, STRIDED_LOAD, true>(
+            ctb,
+            warp,
+            block_num_right_matrices,
+            args
+        );
+    } else {
+        shared_mem_rows_impl_dispatch<max_num_right_matrices, STRIDED_LOAD, false>(
+            ctb,
+            warp,
+            block_num_right_matrices,
+            args
+        );
     }
 }
 
@@ -473,7 +503,7 @@ __global__ void ccn_shift_per_warp_shared_mem_rows(
 
 
 template<typename T, typename RES>
-void run_ccn_shift_per_warp_shared_mem_rows(
+void run_ccn_shift_per_warp_shared_mem(
     const T* __restrict__ left,
     const T* __restrict__ right,
     RES* __restrict__ out,
@@ -484,9 +514,8 @@ void run_ccn_shift_per_warp_shared_mem_rows(
     dsize_t shared_mem_row_size,
     dsize_t shared_mem_rows,
     dsize_t right_matrices_per_block,
-    bool strided_load
-    // dsize_t cols_per_warp,
-    // dsize_t rows_per_warp
+    bool strided_load,
+    bool column_group_per_block
 ) {
     if (shifts_per_cuda_block > 32) {
         throw std::runtime_error("Too many shifts per block: "s + std::to_string(shifts_per_cuda_block) + " (max 32)");
@@ -503,10 +532,13 @@ void run_ccn_shift_per_warp_shared_mem_rows(
 
     dsize_t num_matrix_groups = div_up(num_right_matrices, right_matrices_per_block);
 
+    dsize_t max_num_column_groups = div_up(matrix_size.x, shared_mem_row_size);
+
     dim3 num_threads(warp_size, shifts_per_cuda_block);
     dim3 num_blocks(
         search_size.x * num_matrix_groups,
-        div_up(search_size.y, num_threads.y)
+        div_up(search_size.y, num_threads.y),
+        column_group_per_block ? max_num_column_groups : 1
     );
 
     dsize_t shared_mem_buffer_size = shared_mem_row_size * shared_mem_rows * sizeof(T);
@@ -514,7 +546,7 @@ void run_ccn_shift_per_warp_shared_mem_rows(
     dsize_t shared_mem_size = (2 + right_matrices_per_block) * shared_mem_buffer_size;
 
     if (strided_load) {
-        ccn_shift_per_warp_shared_mem_rows<true><<<num_blocks, num_threads, shared_mem_size>>>(
+        ccn_shift_per_warp_shared_mem<true><<<num_blocks, num_threads, shared_mem_size>>>(
             left,
             right,
             out,
@@ -526,7 +558,7 @@ void run_ccn_shift_per_warp_shared_mem_rows(
             right_matrices_per_block
         );
     } else {
-        ccn_shift_per_warp_shared_mem_rows<false><<<num_blocks, num_threads, shared_mem_size>>>(
+        ccn_shift_per_warp_shared_mem<false><<<num_blocks, num_threads, shared_mem_size>>>(
             left,
             right,
             out,
@@ -540,7 +572,7 @@ void run_ccn_shift_per_warp_shared_mem_rows(
     }
 }
 
-template void run_ccn_shift_per_warp_shared_mem_rows<int, int>(
+template void run_ccn_shift_per_warp_shared_mem<int, int>(
     const int* __restrict__ left,
     const int* __restrict__ right,
     int* __restrict__ out,
@@ -551,10 +583,11 @@ template void run_ccn_shift_per_warp_shared_mem_rows<int, int>(
     dsize_t shared_mem_row_size,
     dsize_t shared_mem_rows,
     dsize_t right_matrices_per_block,
-    bool strided_load
+    bool strided_load,
+    bool column_group_per_block
 );
 
-template void run_ccn_shift_per_warp_shared_mem_rows<float, float>(
+template void run_ccn_shift_per_warp_shared_mem<float, float>(
     const float* __restrict__ left,
     const float* __restrict__ right,
     float* __restrict__ out,
@@ -565,10 +598,11 @@ template void run_ccn_shift_per_warp_shared_mem_rows<float, float>(
     dsize_t shared_mem_row_size,
     dsize_t shared_mem_rows,
     dsize_t right_matrices_per_block,
-    bool strided_load
+    bool strided_load,
+    bool column_group_per_block
 );
 
-template void run_ccn_shift_per_warp_shared_mem_rows<double, double>(
+template void run_ccn_shift_per_warp_shared_mem<double, double>(
     const double* __restrict__ left,
     const double* __restrict__ right,
     double* __restrict__ out,
@@ -579,7 +613,8 @@ template void run_ccn_shift_per_warp_shared_mem_rows<double, double>(
     dsize_t shared_mem_row_size,
     dsize_t shared_mem_rows,
     dsize_t right_matrices_per_block,
-    bool strided_load
+    bool strided_load,
+    bool column_group_per_block
 );
 
 }
