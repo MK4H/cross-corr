@@ -206,6 +206,20 @@ void run_ccn_multirow_multiright_shuffle(
     dsize_t right_matrices_per_thread
 );
 
+template<typename T, typename RES>
+void run_ccn_n_to_mn_shuffle(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t num_right_matrices,
+    dsize_t warps_per_thread_block,
+    dsize_t shifts_per_thread_right_matrix,
+    dsize_t right_matrices_per_thread,
+    dsize_t left_rows_per_iteration
+);
+
 namespace orig {
 
 template<typename DIST, typename T, typename RES>
