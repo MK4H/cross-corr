@@ -240,15 +240,6 @@ __device__ void compute_row_group(
         }
     }
 
-//    if (ctb.group_index().x == 0 && ctb.group_index().y == 0 && ctb.group_index().z == 0 && ctb.thread_rank() == 0) {
-//        for (dsize_t sum_idx = 0; sum_idx < NUM_SHIFTS; ++sum_idx) {
-//            printf(
-//                "sum[%u] = %f\n",
-//                sum_idx,
-//                sum[sum_idx]
-//            );
-//        }
-//    }
 
     #pragma unroll
     for (dsize_t l_mat = 0; l_mat < NUM_LEFT_MATS; ++l_mat) {
@@ -268,35 +259,10 @@ __device__ void compute_row_group(
                 dsize_t sum_idx = l_mat * NUM_RIGHT_MATS * NUM_SHIFTS_PER_RIGHT_MAT + r_mat * NUM_SHIFTS_PER_RIGHT_MAT + shift;
 
                 if constexpr(REVERSE_OUTPUT) {
-//                    dsize_t idx = ((NUM_SHIFTS_PER_RIGHT_MAT - 1 - shift) * NUM_LEFT_MATS * NUM_RIGHT_MATS + l_mat * NUM_RIGHT_MATS + r_mat) * ctb.size() +
-//                                  ctb.thread_rank();
-//                    if (idx == 512) {
-//                        printf(
-//                            "Block[%u, %u, %u], Thread: %u, sum[%u] = %f, res[%u] = %f\n",
-//                            ctb.group_index().x,
-//                            ctb.group_index().y,
-//                            ctb.group_index().z,
-//                            ctb.thread_rank(),
-//                            sum_idx,
-//                            sum[sum_idx],
-//                            idx,
-//                            res[idx]
-//                        );
-//                    }
                     res[((NUM_SHIFTS_PER_RIGHT_MAT - 1 - shift) * NUM_LEFT_MATS * NUM_RIGHT_MATS + l_mat * NUM_RIGHT_MATS + r_mat) * ctb.size() +
                         ctb.thread_rank()] += sum[sum_idx];
 
                 } else {
-//                    dsize_t idx = (shift * NUM_LEFT_MATS * NUM_RIGHT_MATS + l_mat * NUM_RIGHT_MATS + r_mat) * ctb.size() + ctb.thread_rank();
-//                    if (idx == 512) {
-//                        printf(
-//                            "sum[%u] = %f, res[%u] = %f\n",
-//                            sum_idx,
-//                            sum[sum_idx],
-//                            idx,
-//                            res[idx]
-//                        );
-//                    }
                     res[(shift * NUM_LEFT_MATS * NUM_RIGHT_MATS + l_mat * NUM_RIGHT_MATS + r_mat) * ctb.size() + ctb.thread_rank()] += sum[sum_idx];
                 }
             }
@@ -437,29 +403,6 @@ __device__ void n_to_m_shuffle_impl(
         );
     }
 
-//    if (args.output_pos.x == 0 && args.output_pos.y == 0) {
-//        for (dsize_t l_mat = 0; l_mat < NUM_LEFT_MATS; ++l_mat) {
-//            for (dsize_t r_mat = 0; r_mat < NUM_RIGHT_MATS; ++r_mat) {
-//                for (dsize_t shift = 0; shift < NUM_SHIFTS_PER_RIGHT_MAT; ++shift) {
-//                    dsize_t idx = (shift * NUM_LEFT_MATS * NUM_RIGHT_MATS + l_mat * NUM_RIGHT_MATS + r_mat) * ctb.size() + ctb.thread_rank();
-//                    printf(
-//                        "Block: [%u, %u, %u], Warp: %u, Left mat: %u, Right mat: %u, Shift: %u, res[%u] = %f\n",
-//                        ctb.group_index().x,
-//                        ctb.group_index().y,
-//                        ctb.group_index().z,
-//                        warp.meta_group_rank(),
-//                        l_mat,
-//                        r_mat,
-//                        shift,
-//                        idx,
-//                        res[idx]
-//                    );
-//                }
-//            }
-//        }
-//    }
-
-
     wind_down<NUM_SHIFTS_PER_RIGHT_MAT - 1, NUM_SHIFTS_PER_RIGHT_MAT, NUM_RIGHT_MATS, NUM_LEFT_MATS>(ctb, warp, args, res);
 
     auto first_output_offset = args.output_pos.linear_idx(args.search_size.x);
@@ -476,19 +419,6 @@ __device__ void n_to_m_shuffle_impl(
                         atomicAdd(matrix + output_offset, val);
                     } else {
                         matrix[output_offset] = val;
-//                        if (args.output_pos.x == 0 && args.output_pos.y == 0) {
-//                            printf(
-//                                "Block: [%u, %u, %u], Warp: %u, Left mat: %u, Right mat: %u, Shift: %u, Value: %f\n",
-//                                ctb.group_index().x,
-//                                ctb.group_index().y,
-//                                ctb.group_index().z,
-//                                warp.meta_group_rank(),
-//                                l_mat,
-//                                r_mat,
-//                                shift,
-//                                val
-//                            );
-//                        }
                     }
                 }
             }
@@ -506,9 +436,11 @@ __device__ void n_to_m_shuffle_impl_left_mats_dispatch(
 ) {
     if constexpr(NUM_LEFT_MATS == 0) {
         // Silence the unused parameter warning
+        (void)ctb;
         (void)warp;
         (void)num_left_mats;
         (void)args;
+        (void)res;
         assert(false);
     } else {
         if (NUM_LEFT_MATS == num_left_mats) {
@@ -541,10 +473,12 @@ __device__ void n_to_m_shuffle_impl_right_mats_dispatch(
 ) {
     if constexpr(NUM_RIGHT_MATS == 0) {
         // Silence the unused parameter warning
+        (void)ctb;
         (void)warp;
         (void)num_left_mats;
         (void)num_right_mats;
         (void)args;
+        (void)res;
         assert(false);
     } else {
         if (NUM_RIGHT_MATS == num_right_mats) {
@@ -580,11 +514,13 @@ __device__ void n_to_m_shuffle_impl_shifts_dispatch(
 ) {
     if constexpr(NUM_SHIFTS_PER_RIGHT_MAT == 0) {
         // Silence the unused parameter warning
+        (void)ctb;
         (void)warp;
         (void)num_shifts_per_right_mat;
         (void)num_left_mats;
         (void)num_right_mats;
         (void)args;
+        (void)res;
         assert(false);
     } else {
         if (NUM_SHIFTS_PER_RIGHT_MAT == num_shifts_per_right_mat) {
@@ -730,31 +666,6 @@ __global__ void ccn_n_to_m_shuffle_multirow(
     dsize_t warp_num_right_matrices = min(
         num_right_matrices - right_matrix_group_start_idx, MAX_RIGHT_MATRICES_PER_THREAD
     );
-
-//    if (ctb.thread_rank() == 0 && ctb.group_index().x == 0 && ctb.group_index().y == 0 && ctb.group_index().z == 0) {
-//        printf(
-//            "Block: [%u, %u, %u], Warp: %u, Left group idx: %u, Right group idx: %u\n",
-//            ctb.group_index().x,
-//            ctb.group_index().y,
-//            ctb.group_index().z,
-//            warp.meta_group_rank(),
-//            left_matrix_group_idx,
-//            right_matrix_group_idx
-//        );
-//
-//        for (dsize_t l_mat = 0; l_mat < warp_num_left_matrices; ++l_mat) {
-//            for (dsize_t r_mat = 0; r_mat < warp_num_right_matrices; ++r_mat) {
-//                for (dsize_t shift = 0; shift < warp_num_shifts_per_right_mat; ++shift) {
-//                    dsize_t idx = (shift * warp_num_left_matrices * warp_num_right_matrices + l_mat * warp_num_right_matrices + r_mat) * ctb.size() + ctb.thread_rank();
-//                    printf(
-//                        "res[%u] = %f\n",
-//                        idx,
-//                        res[idx]
-//                    );
-//                }
-//            }
-//        }
-//    }
 
     auto args = create_warp_shuffle_impl_args(
         left + left_matrix_group_start_idx * matrix_size.area(),
