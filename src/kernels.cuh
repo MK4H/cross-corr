@@ -119,17 +119,6 @@ void run_ccn_warp_shuffle_work_distribution(
     cudaStream_t cudaStream = nullptr
 );
 
-//template<typename T, typename RES>
-//void run_ccn_shift_per_warp_shared_mem(
-//    const T* __restrict__ left,
-//    const T* __restrict__ right,
-//    RES* __restrict__ out,
-//    dsize2_t matrix_size,
-//    dsize2_t search_size,
-//    dsize_t cuda_shifts_per_block,
-//    dsize_t shared_mem_buffer_size
-//);
-
 template<typename T, typename RES>
 void run_ccn_shift_per_warp_shared_mem(
     const T* __restrict__ left,
@@ -217,6 +206,22 @@ void run_ccn_n_to_mn_shuffle(
     dsize_t num_right_matrices,
     dsize_t warps_per_thread_block,
     dsize_t shifts_per_thread_right_matrix,
+    dsize_t right_matrices_per_thread,
+    dsize_t left_rows_per_iteration
+);
+
+template<typename T, typename RES>
+void run_ccn_n_to_m_shuffle_multirow(
+    const T* __restrict__ left,
+    const T* __restrict__ right,
+    RES* __restrict__ out,
+    dsize2_t matrix_size,
+    dsize2_t search_size,
+    dsize_t num_left_matrices,
+    dsize_t num_right_matrices,
+    dsize_t warps_per_thread_block,
+    dsize_t shifts_per_thread_right_matrix,
+    dsize_t left_matrices_per_thread,
     dsize_t right_matrices_per_thread,
     dsize_t left_rows_per_iteration
 );

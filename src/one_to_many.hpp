@@ -318,9 +318,6 @@ protected:
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_targets_, targets_.size());
         cuda_malloc(&d_results_, results_.size());
-
-        // Need to zero out as work distribution uses atomicAdd on the results matrix
-        cuda_memset(d_results_, 0, results_.size());
     }
 
     void transfer_impl() override {
@@ -377,17 +374,20 @@ private:
     template<typename DISTRIBUTION>
     void run_kernel() {
         CUDA_ADAPTIVE_MEASURE(0, this->measure_alg(), this->sw_,
-                     run_ccn_warp_shuffle_work_distribution<DISTRIBUTION>(
-                         d_ref_,
-                         d_targets_,
-                         d_results_,
-                         targets_.matrix_size(),
-                         results_.matrix_size(),
-                         targets_.num_matrices(),
-                         block_y_size_,
-                         right_matrices_per_thread_,
-                         rows_per_thread_
-                     )
+            // Need to zero out as work distribution uses atomicAdd on the results matrix
+            cuda_memset(d_results_, 0, results_.size());
+
+            run_ccn_warp_shuffle_work_distribution<DISTRIBUTION>(
+                d_ref_,
+                d_targets_,
+                d_results_,
+                targets_.matrix_size(),
+                results_.matrix_size(),
+                targets_.num_matrices(),
+                block_y_size_,
+                right_matrices_per_thread_,
+                rows_per_thread_
+            )
         );
     }
 };
@@ -678,11 +678,6 @@ protected:
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_targets_, targets_.size());
         cuda_malloc(&d_results_, results_.size());
-
-        if (column_group_per_block_) {
-            // Need to zero out as work distribution uses atomicAdd on the results matrix
-            cuda_memset(d_results_, 0, results_.size());
-        }
     }
 
     void transfer_impl() override {
@@ -692,6 +687,11 @@ protected:
 
     void run_impl() override {
         CUDA_ADAPTIVE_MEASURE(0, this->measure_alg(), this->sw_,
+                      if (column_group_per_block_) {
+                          // Need to zero out as work distribution uses atomicAdd on the results matrix
+                          cuda_memset(d_results_, 0, results_.size());
+                      }
+
                      run_ccn_shift_per_warp_shared_mem(
                          d_ref_,
                          d_targets_,

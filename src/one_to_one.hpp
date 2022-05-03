@@ -323,9 +323,6 @@ protected:
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_target_, target_.size());
         cuda_malloc(&d_result_, result_.size());
-
-        // Need to zero out as work distribution uses atomicAdd on the results matrix
-        cuda_memset(d_result_, 0, result_.size());
     }
 
     void transfer_impl() override {
@@ -381,17 +378,20 @@ private:
     template<typename DISTRIBUTION>
     void run_kernel() {
         CUDA_ADAPTIVE_MEASURE(0, this->measure_alg(), this->sw_,
-                     run_ccn_warp_shuffle_work_distribution<DISTRIBUTION>(
-                         d_ref_,
-                         d_target_,
-                         d_result_,
-                         target_.matrix_size(),
-                         result_.matrix_size(),
-                         1,
-                         block_y_size_,
-                         1,
-                         rows_per_thread_
-                     )
+            // Need to zero out as work distribution uses atomicAdd on the results matrix
+            cuda_memset(d_result_, 0, result_.size());
+
+            run_ccn_warp_shuffle_work_distribution<DISTRIBUTION>(
+                d_ref_,
+                d_target_,
+                d_result_,
+                target_.matrix_size(),
+                result_.matrix_size(),
+                1,
+                block_y_size_,
+                1,
+                rows_per_thread_
+            )
         );
     }
 };
@@ -542,9 +542,6 @@ protected:
         cuda_malloc(&d_ref_, ref_.size());
         cuda_malloc(&d_target_, target_.size());
         cuda_malloc(&d_result_, result_.size());
-
-        // Need to zero out as work distribution uses atomicAdd on the results matrix
-        cuda_memset(d_result_, 0, result_.size());
     }
 
     void transfer_impl() override {
@@ -599,15 +596,18 @@ private:
     template<typename DISTRIBUTION>
     void run_kernel() {
         CUDA_ADAPTIVE_MEASURE(0, this->measure_alg(), this->sw_,
-                     run_ccn_shift_per_warp_work_distribution<DISTRIBUTION>(
-                         d_ref_,
-                         d_target_,
-                         d_result_,
-                         target_.matrix_size(),
-                         result_.matrix_size(),
-                         shifts_per_block_,
-                         rows_per_warp_
-                     )
+            // Need to zero out as work distribution uses atomicAdd on the results matrix
+            cuda_memset(d_result_, 0, result_.size());
+
+            run_ccn_shift_per_warp_work_distribution<DISTRIBUTION>(
+                d_ref_,
+                d_target_,
+                d_result_,
+                target_.matrix_size(),
+                result_.matrix_size(),
+                shifts_per_block_,
+                rows_per_warp_
+            )
         );
     }
 };

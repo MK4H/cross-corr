@@ -399,7 +399,7 @@ __device__ void n_to_mn_shuffle_impl(
     }
 }
 
-template<dsize_t NUM_RIGHT_ROWS, dsize_t NUM_RIGHT_MATS, dsize_t LEFT_ROWS_PER_ITER, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
+template<dsize_t NUM_SHIFTS_PER_MAT, dsize_t NUM_RIGHT_MATS, dsize_t LEFT_ROWS_PER_ITER, bool ATOMIC, dsize_t WARP_SIZE, typename T, typename RES>
 __device__ void n_to_mn_shuffle_impl_mats_dispatch(
     const cg::thread_block& ctb,
     const cg::thread_block_tile<WARP_SIZE>& warp,
@@ -417,14 +417,14 @@ __device__ void n_to_mn_shuffle_impl_mats_dispatch(
         assert(false);
     } else {
         if (NUM_RIGHT_MATS == num_right_mats) {
-            n_to_mn_shuffle_impl<NUM_RIGHT_ROWS, NUM_RIGHT_MATS, LEFT_ROWS_PER_ITER, ATOMIC>(
+            n_to_mn_shuffle_impl<NUM_SHIFTS_PER_MAT, NUM_RIGHT_MATS, LEFT_ROWS_PER_ITER, ATOMIC>(
                 ctb,
                 warp,
                 args,
                 res
             );
         } else {
-            n_to_mn_shuffle_impl_mats_dispatch<NUM_RIGHT_ROWS, NUM_RIGHT_MATS - 1, LEFT_ROWS_PER_ITER, ATOMIC>(
+            n_to_mn_shuffle_impl_mats_dispatch<NUM_SHIFTS_PER_MAT, NUM_RIGHT_MATS - 1, LEFT_ROWS_PER_ITER, ATOMIC>(
                 ctb,
                 warp,
                 num_right_mats,
